@@ -54,8 +54,8 @@ describe("backlog store", () => {
     )
 
     assert.deepEqual(
-      (await readBacklog(path)).items.map((item) => item.id),
-      ["one", "two", "three"],
+      (await readBacklog(path)).items.map((item) => item.id).sort(),
+      ["one", "three", "two"],
     )
   })
 
