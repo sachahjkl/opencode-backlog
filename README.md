@@ -10,6 +10,8 @@ Each project stores its backlog in `BACKLOG.json`. Commit this file when the bac
 - Track `todo`, `doing`, and `done` states.
 - Let the agent add, update, move, reorder, list, and remove tasks.
 - Refresh the read-only sidebar when `BACKLOG.json` changes.
+- Browse tasks from the command palette or with `/backlog` and `/tasks`.
+- View task details and change task states from the TUI.
 
 ## Install From This Repository
 
@@ -60,7 +62,7 @@ ${package}/lib/opencode-backlog/dist/tui.js
 
 ## Agent Tools
 
-- `backlog_list` lists all tasks in backlog order.
+- `backlog_list` lists all tasks, or only tasks in one requested state.
 - `backlog_add` adds a task at an optional state and position.
 - `backlog_update` changes a title or notes.
 - `backlog_move` changes a state or a zero-based position.

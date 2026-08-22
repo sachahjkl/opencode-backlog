@@ -83,10 +83,12 @@ export function moveItem(
   )
 }
 
-export function describeBacklog(backlog: Backlog): string {
-  if (backlog.items.length === 0) return "The project backlog is empty."
+export function describeBacklog(backlog: Backlog, statuses: readonly Status[] = STATUSES): string {
+  if (backlog.items.length === 0 && statuses.length === STATUSES.length) {
+    return "The project backlog is empty."
+  }
 
-  return STATUSES.map((status) => {
+  return statuses.map((status) => {
     const items = backlog.items.filter((item) => item.status === status)
     const lines = items.map((item, index) => {
       const notes = item.notes ? `\n   Notes: ${item.notes}` : ""

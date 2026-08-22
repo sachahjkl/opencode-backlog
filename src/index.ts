@@ -18,12 +18,6 @@ import {
 } from "./input.js"
 import { readBacklog, updateBacklog } from "./store.js"
 
-const noInput = {
-  type: "object",
-  properties: {},
-  additionalProperties: false,
-} as const
-
 const idInput = {
   type: "object",
   properties: { id: { type: "string", minLength: 1 } },
@@ -62,12 +56,22 @@ export default Plugin.define({
     await context.tool.transform((tools) => {
       tools.add({
         name: "backlog_list",
-        description: "List the ordered project backlog, including task IDs, notes, and Kanban states.",
-        input: noInput,
+        description: "List the ordered project backlog, optionally filtered by Kanban state.",
+        input: {
+          type: "object",
+          properties: { status: { type: "string", enum: ["todo", "doing", "done"] } },
+          additionalProperties: false,
+        },
         options: { codemode: false },
-        execute: async (_input, toolContext) => ({
-          content: describeBacklog(await readForSession(context, toolContext.sessionID)),
-        }),
+        execute: async (input, toolContext) => {
+          const status = optionalStatus(record(input))
+          return {
+            content: describeBacklog(
+              await readForSession(context, toolContext.sessionID),
+              status === undefined ? undefined : [status],
+            ),
+          }
+        },
       })
 
       tools.add({

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
-import { moveItem, parseBacklog, type BacklogItem } from "../src/backlog.js"
+import { describeBacklog, moveItem, parseBacklog, type BacklogItem } from "../src/backlog.js"
 
 const items: BacklogItem[] = [
   { id: "a", title: "First", status: "todo" },
@@ -41,5 +41,11 @@ describe("moveItem", () => {
       moveItem(items, "a", "doing", 99).map((item) => item.id),
       ["b", "c", "a"],
     )
+  })
+})
+
+describe("describeBacklog", () => {
+  it("describes only the selected state", () => {
+    assert.equal(describeBacklog({ version: 1, items }, ["doing"]), "DOING (1)\n0. c: Active")
   })
 })

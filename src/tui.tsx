@@ -2,8 +2,16 @@ import { watch, type FSWatcher } from "node:fs"
 import { join } from "node:path"
 import { Plugin } from "@opencode-ai/plugin/tui"
 import { createMemo, For, Show } from "solid-js"
-import { BACKLOG_FILE, EMPTY_BACKLOG, STATUSES, type Backlog, type Status } from "./backlog.js"
-import { readBacklogSync } from "./store.js"
+import {
+  BACKLOG_FILE,
+  EMPTY_BACKLOG,
+  STATUSES,
+  moveItem,
+  type Backlog,
+  type BacklogItem,
+  type Status,
+} from "./backlog.js"
+import { readBacklog, readBacklogSync, updateBacklog } from "./store.js"
 
 function statusLabel(status: Status): string {
   if (status === "todo") return "Todo"
@@ -69,6 +77,83 @@ function BacklogView(props: { context: Plugin.Context; sessionID: string }) {
   )
 }
 
+function taskDetails(item: BacklogItem): string {
+  return [`Status: ${statusLabel(item.status)}`, `ID: ${item.id}`, "", item.notes ?? "No notes"].join("\n")
+}
+
+async function browseBacklog(context: Plugin.Context): Promise<void> {
+  const route = context.ui.router.current()
+  const location = route.type === "session" ? context.data.session.get(route.sessionID)?.location : context.location
+  const directory = location?.directory ?? context.data.location.default().directory
+  const path = join(directory, BACKLOG_FILE)
+  const backlog = await readBacklog(path)
+
+  if (backlog.items.length === 0) {
+    await context.ui.dialog.alert({ title: "Backlog", message: "No tasks" })
+    return
+  }
+
+  const id = await context.ui.dialog.select({
+    title: "Backlog",
+    placeholder: "Select a task",
+    options: backlog.items.map((item) => ({
+      title: item.title,
+      value: item.id,
+      ...(item.notes === undefined ? {} : { description: item.notes }),
+      category: statusLabel(item.status),
+    })),
+  })
+  if (!id) return
+
+  const item = backlog.items.find((candidate) => candidate.id === id)
+  if (!item) return
+  await context.ui.dialog.alert({ title: item.title, message: taskDetails(item) })
+
+  const status = await context.ui.dialog.select<Status>({
+    title: `Change status: ${item.title}`,
+    current: item.status,
+    options: STATUSES.map((candidate) => ({
+      title: statusLabel(candidate),
+      value: candidate,
+      ...(candidate === item.status ? { description: "Current status" } : {}),
+    })),
+  })
+  if (!status || status === item.status) return
+
+  await updateBacklog(path, (current) => ({
+    version: 1,
+    items: moveItem(current.items, item.id, status, undefined),
+  }))
+  context.ui.toast.show({ message: `Moved "${item.title}" to ${statusLabel(status)}.`, variant: "success" })
+}
+
+function Commands(props: { context: Plugin.Context }) {
+  props.context.keymap.layer(() => ({
+    mode: "global",
+    commands: [
+      {
+        id: "backlog.browse",
+        title: "Browse backlog",
+        description: "View backlog tasks and change their status",
+        group: "Backlog",
+        palette: true,
+        slash: { name: "backlog", aliases: ["tasks"] },
+        async run() {
+          try {
+            await browseBacklog(props.context)
+          } catch (cause) {
+            props.context.ui.toast.show({
+              message: cause instanceof Error ? cause.message : String(cause),
+              variant: "error",
+            })
+          }
+        },
+      },
+    ],
+  }))
+  return null
+}
+
 export default Plugin.define({
   id: "opencode.backlog.tui",
   setup(context) {
@@ -76,6 +161,10 @@ export default Plugin.define({
     let disposed = false
     let refreshPending = false
     let releaseSlot: () => void = () => {}
+    const releaseCommands = context.ui.slot({
+      append: "app",
+      render: () => <Commands context={context} />,
+    })
 
     const refresh = () => {
       if (disposed || refreshPending) return
@@ -110,6 +199,7 @@ export default Plugin.define({
     return () => {
       disposed = true
       releaseSlot()
+      releaseCommands()
       for (const watcher of watchers.values()) watcher.close()
       watchers.clear()
     }
