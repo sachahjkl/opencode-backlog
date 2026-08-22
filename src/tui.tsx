@@ -1,3 +1,4 @@
+import { watch, type FSWatcher } from "node:fs"
 import { join } from "node:path"
 import { Plugin } from "@opencode-ai/plugin/tui"
 import { createMemo, For, Show } from "solid-js"
@@ -71,9 +72,46 @@ function BacklogView(props: { context: Plugin.Context; sessionID: string }) {
 export default Plugin.define({
   id: "opencode.backlog.tui",
   setup(context) {
-    return context.ui.slot({
-      append: "sidebar.content",
-      render: (props) => <BacklogView context={context} sessionID={props.sessionID} />,
-    })
+    const watchers = new Map<string, FSWatcher>()
+    let disposed = false
+    let refreshPending = false
+    let releaseSlot: () => void = () => {}
+
+    const refresh = () => {
+      if (disposed || refreshPending) return
+      refreshPending = true
+      queueMicrotask(() => {
+        refreshPending = false
+        if (disposed) return
+        releaseSlot()
+        releaseSlot = registerSlot()
+      })
+    }
+
+    const watchDirectory = (directory: string) => {
+      if (watchers.has(directory)) return
+      const watcher = watch(directory, { persistent: false }, (_event, filename) => {
+        if (filename === BACKLOG_FILE) refresh()
+      })
+      watchers.set(directory, watcher)
+    }
+
+    const registerSlot = () =>
+      context.ui.slot({
+        append: "sidebar.content",
+        render: (props) => {
+          const directory = context.data.session.get(props.sessionID)?.location.directory
+          if (directory) watchDirectory(directory)
+          return <BacklogView context={context} sessionID={props.sessionID} />
+        },
+      })
+
+    releaseSlot = registerSlot()
+    return () => {
+      disposed = true
+      releaseSlot()
+      for (const watcher of watchers.values()) watcher.close()
+      watchers.clear()
+    }
   },
 })
