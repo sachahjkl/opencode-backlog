@@ -1,9 +1,8 @@
-import { watch } from "node:fs"
 import { join } from "node:path"
 import { Plugin } from "@opencode-ai/plugin/tui"
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js"
+import { createMemo, For, Show } from "solid-js"
 import { BACKLOG_FILE, EMPTY_BACKLOG, STATUSES, type Backlog, type Status } from "./backlog.js"
-import { readBacklog } from "./store.js"
+import { readBacklogSync } from "./store.js"
 
 function statusLabel(status: Status): string {
   if (status === "todo") return "Todo"
@@ -12,44 +11,15 @@ function statusLabel(status: Status): string {
 }
 
 function BacklogView(props: { context: Plugin.Context; sessionID: string }) {
-  const [backlog, setBacklog] = createSignal<Backlog>(EMPTY_BACKLOG)
-  const [error, setError] = createSignal<string>()
   const theme = props.context.theme
-  const session = createMemo(() => props.context.data.session.get(props.sessionID))
-
-  createEffect(() => {
-    const directory = session()?.location.directory
-    if (!directory) return
-
-    let active = true
-    let revision = 0
-    const path = join(directory, BACKLOG_FILE)
-    const load = async () => {
-      const currentRevision = ++revision
-      try {
-        const value = await readBacklog(path)
-        if (!active || currentRevision !== revision) return
-        setBacklog(value)
-        setError(undefined)
-      } catch (cause) {
-        if (!active || currentRevision !== revision) return
-        setError(cause instanceof Error ? cause.message : String(cause))
-      }
-    }
-
-    void load()
-    const watcher = watch(directory, { persistent: false }, (_event, filename) => {
-      if (filename === BACKLOG_FILE) void load()
-    })
-    watcher.on("error", (cause) => {
-      if (active) setError(cause.message)
-    })
-
-    onCleanup(() => {
-      active = false
-      watcher.close()
-    })
-  })
+  const directory = props.context.data.session.get(props.sessionID)?.location.directory
+  let backlog: Backlog = EMPTY_BACKLOG
+  let error: string | undefined
+  try {
+    if (directory) backlog = readBacklogSync(join(directory, BACKLOG_FILE))
+  } catch (cause) {
+    error = cause instanceof Error ? cause.message : String(cause)
+  }
 
   const color = (status: Status) => {
     if (status === "doing") return theme.text.feedback.warning.default
@@ -62,15 +32,15 @@ function BacklogView(props: { context: Plugin.Context; sessionID: string }) {
       <text fg={theme.text.default}>
         <b>Backlog</b>
       </text>
-      <Show when={error()}>
+      <Show when={error}>
         {(message) => <text fg={theme.text.feedback.error.default}>{message()}</text>}
       </Show>
-      <Show when={!error() && backlog().items.length === 0}>
+      <Show when={!error && backlog.items.length === 0}>
         <text fg={theme.text.subdued}>No tasks</text>
       </Show>
       <For each={STATUSES}>
         {(status) => {
-          const items = createMemo(() => backlog().items.filter((item) => item.status === status))
+          const items = createMemo(() => backlog.items.filter((item) => item.status === status))
           return (
             <Show when={items().length > 0}>
               <box marginTop={1}>
@@ -102,7 +72,7 @@ export default Plugin.define({
   id: "opencode.backlog.tui",
   setup(context) {
     return context.ui.slot({
-      prepend: "sidebar.content",
+      append: "sidebar.content",
       render: (props) => <BacklogView context={context} sessionID={props.sessionID} />,
     })
   },

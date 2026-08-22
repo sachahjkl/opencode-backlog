@@ -6,7 +6,7 @@ import { join } from "node:path"
 import { afterEach, describe, it } from "node:test"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
-import { readBacklog, updateBacklog } from "../src/store.js"
+import { readBacklog, readBacklogSync, updateBacklog } from "../src/store.js"
 
 const directories: string[] = []
 const execFileAsync = promisify(execFile)
@@ -19,7 +19,9 @@ describe("backlog store", () => {
   it("returns an empty backlog when the file does not exist", async () => {
     const directory = await mkdtemp(join(tmpdir(), "opencode-backlog-"))
     directories.push(directory)
-    assert.deepEqual(await readBacklog(join(directory, "BACKLOG.json")), { version: 1, items: [] })
+    const path = join(directory, "BACKLOG.json")
+    assert.deepEqual(await readBacklog(path), { version: 1, items: [] })
+    assert.deepEqual(readBacklogSync(path), { version: 1, items: [] })
   })
 
   it("writes valid formatted JSON", async () => {
