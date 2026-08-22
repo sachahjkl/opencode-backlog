@@ -169,12 +169,14 @@ export default Plugin.define({
     const refresh = () => {
       if (disposed || refreshPending) return
       refreshPending = true
-      queueMicrotask(() => {
+      releaseSlot()
+      context.renderer.requestRender()
+      setTimeout(() => {
         refreshPending = false
         if (disposed) return
-        releaseSlot()
         releaseSlot = registerSlot()
-      })
+        context.renderer.requestRender()
+      }, 0)
     }
 
     const watchDirectory = (directory: string) => {
