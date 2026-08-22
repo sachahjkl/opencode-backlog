@@ -13,22 +13,28 @@ import {
 } from "./backlog.js"
 import { readBacklog, readBacklogSync, updateBacklog } from "./store.js"
 
+interface BacklogSnapshot {
+  backlog: Backlog
+  error?: string
+}
+
+interface ViewState {
+  directories: Record<string, BacklogSnapshot>
+}
+
+const EMPTY_SNAPSHOT: BacklogSnapshot = { backlog: EMPTY_BACKLOG }
+
 function statusLabel(status: Status): string {
   if (status === "todo") return "Todo"
   if (status === "doing") return "Doing"
   return "Done"
 }
 
-function BacklogView(props: { context: Plugin.Context; sessionID: string }) {
+function BacklogView(props: { context: Plugin.Context; directory: string; view: ViewState }) {
   const theme = props.context.theme
-  const directory = props.context.data.session.get(props.sessionID)?.location.directory
-  let backlog: Backlog = EMPTY_BACKLOG
-  let error: string | undefined
-  try {
-    if (directory) backlog = readBacklogSync(join(directory, BACKLOG_FILE))
-  } catch (cause) {
-    error = cause instanceof Error ? cause.message : String(cause)
-  }
+  const snapshot = createMemo(() => props.view.directories[props.directory] ?? EMPTY_SNAPSHOT)
+  const backlog = createMemo(() => snapshot().backlog)
+  const error = createMemo(() => snapshot().error)
 
   const color = (status: Status) => {
     if (status === "doing") return theme.text.feedback.warning.default
@@ -41,15 +47,15 @@ function BacklogView(props: { context: Plugin.Context; sessionID: string }) {
       <text fg={theme.text.default}>
         <b>Backlog</b>
       </text>
-      <Show when={error}>
+      <Show when={error()}>
         {(message) => <text fg={theme.text.feedback.error.default}>{message()}</text>}
       </Show>
-      <Show when={!error && backlog.items.length === 0}>
+      <Show when={!error() && backlog().items.length === 0}>
         <text fg={theme.text.subdued}>No tasks</text>
       </Show>
       <For each={STATUSES}>
         {(status) => {
-          const items = createMemo(() => backlog.items.filter((item) => item.status === status))
+          const items = createMemo(() => backlog().items.filter((item) => item.status === status))
           return (
             <Show when={items().length > 0}>
               <box marginTop={1}>
@@ -158,48 +164,50 @@ export default Plugin.define({
   id: "opencode.backlog.tui",
   setup(context) {
     const watchers = new Map<string, FSWatcher>()
-    let disposed = false
-    let refreshPending = false
-    let releaseSlot: () => void = () => {}
+    const [view, updateView] = context.storage.memory<ViewState>("view", {
+      initial: { directories: {} },
+    })
     const releaseCommands = context.ui.slot({
       append: "app",
       render: () => <Commands context={context} />,
     })
 
-    const refresh = () => {
-      if (disposed || refreshPending) return
-      refreshPending = true
-      releaseSlot()
-      context.renderer.requestRender()
-      setTimeout(() => {
-        refreshPending = false
-        if (disposed) return
-        releaseSlot = registerSlot()
-        context.renderer.requestRender()
-      }, 0)
+    const refreshDirectory = (directory: string) => {
+      try {
+        const backlog = readBacklogSync(join(directory, BACKLOG_FILE))
+        updateView((draft) => {
+          draft.directories[directory] = { backlog }
+        })
+      } catch (cause) {
+        updateView((draft) => {
+          draft.directories[directory] = {
+            backlog: EMPTY_BACKLOG,
+            error: cause instanceof Error ? cause.message : String(cause),
+          }
+        })
+      }
     }
 
     const watchDirectory = (directory: string) => {
       if (watchers.has(directory)) return
+      refreshDirectory(directory)
       const watcher = watch(directory, { persistent: false }, (_event, filename) => {
-        if (filename === BACKLOG_FILE) refresh()
+        if (filename?.toString() === BACKLOG_FILE) refreshDirectory(directory)
       })
       watchers.set(directory, watcher)
     }
 
-    const registerSlot = () =>
-      context.ui.slot({
-        append: "sidebar.content",
-        render: (props) => {
-          const directory = context.data.session.get(props.sessionID)?.location.directory
-          if (directory) watchDirectory(directory)
-          return <BacklogView context={context} sessionID={props.sessionID} />
-        },
-      })
+    const releaseSlot = context.ui.slot({
+      append: "sidebar.content",
+      render: (props) => {
+        const directory = context.data.session.get(props.sessionID)?.location.directory
+        if (!directory) return null
+        watchDirectory(directory)
+        return <BacklogView context={context} directory={directory} view={view} />
+      },
+    })
 
-    releaseSlot = registerSlot()
     return () => {
-      disposed = true
       releaseSlot()
       releaseCommands()
       for (const watcher of watchers.values()) watcher.close()

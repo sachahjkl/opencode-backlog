@@ -35,7 +35,7 @@
           };
           npmDeps = pkgs.fetchNpmDeps {
             inherit src;
-            hash = "sha256-KR1+j/eaXEVrvaQ/c1ZmY3p4a4FcQdMsx0DmLcZCbi8=";
+            hash = "sha256-FNOFJxBpBCrQ1/h488MMBaYuTm9Q7ijV1Mi6r4qfXY4=";
           };
           mkCheck =
             name: command:
@@ -73,6 +73,7 @@
               root="$out/lib/${packageJson.name}"
               mkdir -p "$root"
               cp -r dist node_modules "$root/"
+              rm -rf "$root/node_modules/solid-js" "$root/node_modules/@opentui"
               cp LICENSE README.md package.json "$root/"
               runHook postInstall
             '';
