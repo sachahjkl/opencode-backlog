@@ -116,7 +116,6 @@ export default Plugin.define({
             notes: { type: ["string", "null"] },
           },
           required: ["id"],
-          anyOf: [{ required: ["title"] }, { required: ["notes"] }],
           additionalProperties: false,
         },
         options: { codemode: false },
@@ -125,6 +124,9 @@ export default Plugin.define({
           const id = requiredString(values, "id")
           const title = values.title === undefined ? undefined : requiredString(values, "title")
           const notes = optionalNullableString(values, "notes")
+          if (title === undefined && notes === undefined) {
+            throw new Error("backlog_update requires a title or notes change")
+          }
           const backlog = await updateForSession(context, toolContext.sessionID, (current) => {
             const item = current.items.find((candidate) => candidate.id === id)
             if (!item) throw new Error(`Backlog item ${id} does not exist`)
@@ -151,7 +153,6 @@ export default Plugin.define({
             position: { type: "integer", minimum: 0 },
           },
           required: ["id"],
-          anyOf: [{ required: ["status"] }, { required: ["position"] }],
           additionalProperties: false,
         },
         options: { codemode: false },
@@ -160,6 +161,9 @@ export default Plugin.define({
           const id = requiredString(values, "id")
           const status = optionalStatus(values)
           const position = optionalPosition(values)
+          if (status === undefined && position === undefined) {
+            throw new Error("backlog_move requires a status or position change")
+          }
           const backlog = await updateForSession(context, toolContext.sessionID, (current) => ({
             version: 1,
             items: moveItem(current.items, id, status, position),
