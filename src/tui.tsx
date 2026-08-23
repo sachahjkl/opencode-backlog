@@ -7,6 +7,8 @@ import {
   addCategory,
   BACKLOG_FILE,
   CATEGORY_COLORS,
+  CATEGORY_ICONS,
+  CATEGORY_PRESETS,
   EMPTY_BACKLOG,
   moveItem,
   moveCategory,
@@ -14,10 +16,12 @@ import {
   removeCategory,
   renameCategory,
   setCategoryColor,
+  setCategoryIcon,
   type Backlog,
   type BacklogItem,
   type Category,
   type CategoryColor,
+  type CategoryIcon,
   type Status,
 } from "./backlog.js"
 import { readBacklog, readBacklogSync, updateBacklog } from "./store.js"
@@ -34,11 +38,22 @@ function categoryTitle(categories: readonly Category[], status: Status): string 
 }
 
 function categoryColorName(category: Category): CategoryColor {
-  if (category.color) return category.color
-  if (category.id === "todo") return "subdued"
-  if (category.id === "doing") return "warning"
-  if (category.id === "done") return "success"
-  return "info"
+  return category.color ?? CATEGORY_PRESETS[category.id]?.color ?? "info"
+}
+
+function categoryIconName(category: Category): CategoryIcon {
+  return category.icon ?? CATEGORY_PRESETS[category.id]?.icon ?? "circle"
+}
+
+function categoryIcon(category: Category): string {
+  const icon = categoryIconName(category)
+  if (icon === "circle") return "○"
+  if (icon === "dot") return "●"
+  if (icon === "check") return "✓"
+  if (icon === "cross") return "×"
+  if (icon === "pause") return "‖"
+  if (icon === "diamond") return "◆"
+  return ""
 }
 
 function readSnapshot(directory: string): BacklogSnapshot {
@@ -98,7 +113,15 @@ function BacklogView(props: { context: Plugin.Context; directory: string }) {
               </text>
               <For each={items()}>
                 {(item) => (
-                  <box minWidth={0} onMouseUp={() => void showTaskDetails(props.context, item, backlog().categories)}>
+                  <box
+                    flexDirection="row"
+                    gap={1}
+                    minWidth={0}
+                    onMouseUp={() => void showTaskDetails(props.context, item, backlog().categories)}
+                  >
+                    <Show when={categoryIcon(category)}>
+                      {(icon) => <text fg={color()} flexShrink={0}>{icon()}</text>}
+                    </Show>
                     <text fg={theme.text.default} wrapMode="none" truncate flexGrow={1} minWidth={0}>
                       {item.title}
                     </text>
@@ -362,16 +385,28 @@ async function addBacklogCategory(context: Plugin.Context): Promise<void> {
     value: suggestedID,
   })
   if (!id?.trim()) return
+  const preset = CATEGORY_PRESETS[id.trim()]
 
   const color = await context.ui.dialog.select<CategoryColor>({
     title: title.trim(),
     placeholder: "Category color",
-    current: "info",
+    current: preset?.color ?? "info",
     options: CATEGORY_COLORS.map((value) => ({ title: value, value })),
   })
   if (!color) return
 
-  const category: Category = { id: id.trim(), title: title.trim(), color }
+  const icon = await context.ui.dialog.select<CategoryIcon>({
+    title: title.trim(),
+    placeholder: "Category icon",
+    current: preset?.icon ?? "circle",
+    options: CATEGORY_ICONS.map((value) => ({
+      title: `${categoryIcon({ id: "", title: "", icon: value }) || " "} ${value}`,
+      value,
+    })),
+  })
+  if (!icon) return
+
+  const category: Category = { id: id.trim(), title: title.trim(), color, icon }
   const { path } = backlogLocation(context)
   await updateBacklog(path, (current) => addCategory(current, category))
   context.ui.toast.show({ message: `Added category "${category.title}".`, variant: "success" })
@@ -402,6 +437,23 @@ async function colorBacklogCategory(context: Plugin.Context, category: Category)
   const { path } = backlogLocation(context)
   await updateBacklog(path, (current) => setCategoryColor(current, category.id, color))
   context.ui.toast.show({ message: `Updated color for "${category.title}".`, variant: "success" })
+}
+
+async function iconBacklogCategory(context: Plugin.Context, category: Category): Promise<void> {
+  const icon = await context.ui.dialog.select<CategoryIcon>({
+    title: `Icon: ${category.title}`,
+    placeholder: "Category icon",
+    current: categoryIconName(category),
+    options: CATEGORY_ICONS.map((value) => ({
+      title: `${categoryIcon({ id: "", title: "", icon: value }) || " "} ${value}`,
+      value,
+    })),
+  })
+  if (!icon || icon === categoryIconName(category)) return
+
+  const { path } = backlogLocation(context)
+  await updateBacklog(path, (current) => setCategoryIcon(current, category.id, icon))
+  context.ui.toast.show({ message: `Updated icon for "${category.title}".`, variant: "success" })
 }
 
 async function moveBacklogCategory(context: Plugin.Context, category: Category): Promise<void> {
@@ -461,12 +513,13 @@ async function manageBacklogCategories(context: Plugin.Context): Promise<void> {
   if (!category) return
   const taskIDs = backlog.items.filter((item) => item.status === category.id).map((item) => item.id)
   const count = taskIDs.length
-  const action = await context.ui.dialog.select<"rename" | "color" | "move" | "purge" | "delete">({
+  const action = await context.ui.dialog.select<"rename" | "color" | "icon" | "move" | "purge" | "delete">({
     title: category.title,
     placeholder: "Select an action",
     options: [
       { title: "Rename", value: "rename" },
       { title: "Change color", value: "color" },
+      { title: "Change icon", value: "icon" },
       { title: "Move", value: "move" },
       ...(count === 0
         ? [{ title: "Delete empty category", value: "delete" as const }]
@@ -475,6 +528,7 @@ async function manageBacklogCategories(context: Plugin.Context): Promise<void> {
   })
   if (action === "rename") return renameBacklogCategory(context, category)
   if (action === "color") return colorBacklogCategory(context, category)
+  if (action === "icon") return iconBacklogCategory(context, category)
   if (action === "move") return moveBacklogCategory(context, category)
   if (action === "delete") return deleteBacklogCategory(context, category)
   if (action !== "purge") return

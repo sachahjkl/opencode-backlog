@@ -1,8 +1,10 @@
 import {
   isCategoryColor,
+  isCategoryIcon,
   isStatus,
   type Backlog,
   type CategoryColor,
+  type CategoryIcon,
   type Status,
 } from "./backlog.js"
 
@@ -48,6 +50,13 @@ export function optionalCategoryColor(input: Record<string, unknown>): CategoryC
   const value = input.color
   if (value === undefined) return undefined
   if (!isCategoryColor(value)) throw new Error("color must identify a supported category color")
+  return value
+}
+
+export function optionalCategoryIcon(input: Record<string, unknown>): CategoryIcon | undefined {
+  const value = input.icon
+  if (value === undefined) return undefined
+  if (!isCategoryIcon(value)) throw new Error("icon must identify a supported category icon")
   return value
 }
 

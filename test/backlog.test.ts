@@ -12,6 +12,7 @@ import {
   removeCategory,
   renameCategory,
   setCategoryColor,
+  setCategoryIcon,
   sortByStatus,
   type Backlog,
   type BacklogItem,
@@ -61,6 +62,10 @@ describe("parseBacklog", () => {
     assert.throws(
       () => parseBacklog({ version: 2, categories: [{ id: "todo", title: "Todo", color: "pink" }], items: [] }),
       /invalid color/,
+    )
+    assert.throws(
+      () => parseBacklog({ version: 2, categories: [{ id: "todo", title: "Todo", icon: "star" }], items: [] }),
+      /invalid icon/,
     )
   })
 
@@ -144,6 +149,11 @@ describe("category operations", () => {
   it("sets a category color", () => {
     assert.equal(setCategoryColor(backlog, "blocked", "error").categories[3]?.color, "error")
     assert.throws(() => setCategoryColor(backlog, "missing", "info"), /does not exist/)
+  })
+
+  it("sets a category icon", () => {
+    assert.equal(setCategoryIcon(backlog, "blocked", "cross").categories[3]?.icon, "cross")
+    assert.throws(() => setCategoryIcon(backlog, "missing", "circle"), /does not exist/)
   })
 
   it("moves a category and its task group", () => {

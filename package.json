@@ -1,6 +1,6 @@
 {
   "name": "opencode-backlog",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Project backlog tools and sidebar for OpenCode 2",
   "type": "module",
   "repository": {

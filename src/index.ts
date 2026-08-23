@@ -4,6 +4,7 @@ import { Plugin } from "@opencode-ai/plugin"
 import {
   BACKLOG_FILE,
   CATEGORY_COLORS,
+  CATEGORY_ICONS,
   addCategory,
   describeBacklog,
   moveItem,
@@ -12,6 +13,7 @@ import {
   removeCategory,
   renameCategory,
   setCategoryColor,
+  setCategoryIcon,
   sortByStatus,
   type Backlog,
   type BacklogItem,
@@ -19,6 +21,7 @@ import {
 import {
   optionalNullableString,
   optionalCategoryColor,
+  optionalCategoryIcon,
   optionalPosition,
   optionalStatus,
   record,
@@ -39,6 +42,7 @@ const categoryTitleInput = {
     id: { type: "string", minLength: 1 },
     title: { type: "string", minLength: 1 },
     color: { type: "string", enum: CATEGORY_COLORS },
+    icon: { type: "string", enum: CATEGORY_ICONS },
   },
   required: ["id"],
   additionalProperties: false,
@@ -237,6 +241,7 @@ export default Plugin.define({
             id: { type: "string", minLength: 1 },
             title: { type: "string", minLength: 1 },
             color: { type: "string", enum: CATEGORY_COLORS },
+            icon: { type: "string", enum: CATEGORY_ICONS },
             position: { type: "integer", minimum: 0 },
           },
           required: ["id", "title"],
@@ -248,9 +253,15 @@ export default Plugin.define({
           const id = requiredString(values, "id")
           const title = requiredString(values, "title")
           const color = optionalCategoryColor(values)
+          const icon = optionalCategoryIcon(values)
           const position = optionalPosition(values)
           const backlog = await updateForSession(context, toolContext.sessionID, (current) =>
-            addCategory(current, { id, title, ...(color === undefined ? {} : { color }) }, position),
+            addCategory(current, {
+              id,
+              title,
+              ...(color === undefined ? {} : { color }),
+              ...(icon === undefined ? {} : { icon }),
+            }, position),
           )
           return { content: `Added category ${id}.\n\n${describeBacklog(backlog)}` }
         },
@@ -258,7 +269,7 @@ export default Plugin.define({
 
       tools.add({
         name: "backlog_category_update",
-        description: "Change a backlog category title or color.",
+        description: "Change a backlog category title, color, or icon.",
         input: categoryTitleInput,
         options: { codemode: false },
         execute: async (input, toolContext) => {
@@ -266,12 +277,14 @@ export default Plugin.define({
           const id = requiredString(values, "id")
           const title = values.title === undefined ? undefined : requiredString(values, "title")
           const color = optionalCategoryColor(values)
-          if (title === undefined && color === undefined) {
-            throw new Error("backlog_category_update requires a title or color change")
+          const icon = optionalCategoryIcon(values)
+          if (title === undefined && color === undefined && icon === undefined) {
+            throw new Error("backlog_category_update requires a title, color, or icon change")
           }
           const backlog = await updateForSession(context, toolContext.sessionID, (current) => {
             const renamed = title === undefined ? current : renameCategory(current, id, title)
-            return color === undefined ? renamed : setCategoryColor(renamed, id, color)
+            const colored = color === undefined ? renamed : setCategoryColor(renamed, id, color)
+            return icon === undefined ? colored : setCategoryIcon(colored, id, icon)
           })
           return { content: `Updated category ${id}.\n\n${describeBacklog(backlog)}` }
         },

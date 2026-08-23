@@ -18,7 +18,7 @@ New backlogs contain these categories:
 - `doing`
 - `done`
 
-You can add, rename, color, reorder, purge, and remove categories. Each category has a stable ID and a modifiable title.
+You can add, rename, style, reorder, purge, and remove categories. Each category has a stable ID and a modifiable title.
 
 The server plugin manages tasks and categories. The TUI plugin provides:
 
@@ -157,8 +157,8 @@ Click a sidebar task to open its details. The detail dialog provides `c`, `e`, a
 | `backlog_update` | Change a task title or notes. |
 | `backlog_move` | Change a task category or position. |
 | `backlog_remove` | Permanently remove a task. |
-| `backlog_category_add` | Add a category with a stable ID, title, and optional color. |
-| `backlog_category_update` | Change a category title or color. |
+| `backlog_category_add` | Add a category with a stable ID, title, color, and icon. |
+| `backlog_category_update` | Change a category title, color, or icon. |
 | `backlog_category_move` | Change a category position. |
 | `backlog_category_remove` | Remove an empty category. |
 | `backlog_category_purge` | Permanently remove all tasks from a category. |
@@ -173,10 +173,10 @@ The plugin creates `BACKLOG.json` when the first task or category is added:
 {
   "version": 2,
   "categories": [
-    { "id": "todo", "title": "Todo", "color": "subdued" },
-    { "id": "doing", "title": "Doing", "color": "warning" },
-    { "id": "blocked", "title": "Blocked", "color": "error" },
-    { "id": "done", "title": "Done", "color": "success" }
+    { "id": "todo", "title": "Todo", "color": "subdued", "icon": "circle" },
+    { "id": "doing", "title": "Doing", "color": "warning", "icon": "dot" },
+    { "id": "blocked", "title": "Blocked", "color": "error", "icon": "cross" },
+    { "id": "done", "title": "Done", "color": "success", "icon": "check" }
   ],
   "items": [
     {
@@ -194,6 +194,20 @@ The category array defines category order. The item array defines task order ins
 Category IDs stay stable when titles change. The plugin rejects tasks that reference an unknown category ID.
 
 Category colors use theme-aware values: `default`, `subdued`, `error`, `warning`, `success`, or `info`.
+
+Category icons use `circle`, `dot`, `check`, `cross`, `pause`, `diamond`, or `none`.
+
+Known category IDs provide style presets when color or icon is absent:
+
+| ID | Color | Icon |
+| --- | --- | --- |
+| `todo` | `subdued` | `circle` |
+| `doing` | `warning` | `dot` |
+| `blocked` | `error` | `cross` |
+| `review` | `info` | `diamond` |
+| `waiting` | `warning` | `pause` |
+| `done` | `success` | `check` |
+| `cancelled` | `subdued` | `cross` |
 
 The plugin reads version 1 files with the default categories. The next backlog change writes the file as version 2.
 

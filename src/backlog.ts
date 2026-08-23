@@ -1,13 +1,26 @@
 export const BACKLOG_FILE = "BACKLOG.json"
 
 export const CATEGORY_COLORS = ["default", "subdued", "error", "warning", "success", "info"] as const
+export const CATEGORY_ICONS = ["circle", "dot", "check", "cross", "pause", "diamond", "none"] as const
 
 export type CategoryColor = (typeof CATEGORY_COLORS)[number]
+export type CategoryIcon = (typeof CATEGORY_ICONS)[number]
 
 export interface Category {
   readonly id: string
   readonly title: string
   readonly color?: CategoryColor
+  readonly icon?: CategoryIcon
+}
+
+export const CATEGORY_PRESETS: Readonly<Record<string, { color: CategoryColor; icon: CategoryIcon }>> = {
+  todo: { color: "subdued", icon: "circle" },
+  doing: { color: "warning", icon: "dot" },
+  blocked: { color: "error", icon: "cross" },
+  review: { color: "info", icon: "diamond" },
+  waiting: { color: "warning", icon: "pause" },
+  done: { color: "success", icon: "check" },
+  cancelled: { color: "subdued", icon: "cross" },
 }
 
 export type Status = string
@@ -26,9 +39,9 @@ export interface Backlog {
 }
 
 export const DEFAULT_CATEGORIES: readonly Category[] = [
-  { id: "todo", title: "Todo", color: "subdued" },
-  { id: "doing", title: "Doing", color: "warning" },
-  { id: "done", title: "Done", color: "success" },
+  { id: "todo", title: "Todo", ...CATEGORY_PRESETS.todo },
+  { id: "doing", title: "Doing", ...CATEGORY_PRESETS.doing },
+  { id: "done", title: "Done", ...CATEGORY_PRESETS.done },
 ]
 
 export const EMPTY_BACKLOG: Backlog = { version: 2, categories: DEFAULT_CATEGORIES, items: [] }
@@ -49,10 +62,14 @@ function validateCategory(category: unknown, index?: number): Category {
   if (category.color !== undefined && !isCategoryColor(category.color)) {
     throw new Error(`${label} has an invalid color`)
   }
+  if (category.icon !== undefined && !isCategoryIcon(category.icon)) {
+    throw new Error(`${label} has an invalid icon`)
+  }
   return {
     id: category.id,
     title: category.title,
     ...(category.color === undefined ? {} : { color: category.color }),
+    ...(category.icon === undefined ? {} : { icon: category.icon }),
   }
 }
 
@@ -106,6 +123,10 @@ export function isStatus(backlog: Backlog, value: unknown): value is Status {
 
 export function isCategoryColor(value: unknown): value is CategoryColor {
   return typeof value === "string" && CATEGORY_COLORS.includes(value as CategoryColor)
+}
+
+export function isCategoryIcon(value: unknown): value is CategoryIcon {
+  return typeof value === "string" && CATEGORY_ICONS.includes(value as CategoryIcon)
 }
 
 export function parseBacklog(value: unknown): Backlog {
@@ -210,6 +231,18 @@ export function setCategoryColor(backlog: Backlog, id: string, color: CategoryCo
     ...backlog,
     categories: backlog.categories.map((category) =>
       category.id === id ? { ...category, color } : category,
+    ),
+  }
+}
+
+export function setCategoryIcon(backlog: Backlog, id: string, icon: CategoryIcon): Backlog {
+  if (!backlog.categories.some((category) => category.id === id)) {
+    throw new Error(`Backlog category ${id} does not exist`)
+  }
+  return {
+    ...backlog,
+    categories: backlog.categories.map((category) =>
+      category.id === id ? { ...category, icon } : category,
     ),
   }
 }
