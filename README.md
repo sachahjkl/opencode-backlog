@@ -243,33 +243,21 @@ Entering `nix develop` installs the repository pre-commit hook. The hook checks 
 
 ## Release
 
-Bootstrap the new package from an authenticated workstation:
+Publish each release from an authenticated workstation:
 
 ```sh
 npm login
 npm publish
 ```
 
-Staged publishing cannot create a new package. After `opencode-backlog` exists on npm, configure trusted publishing with these exact values:
-
-```text
-Organization or user: sachahjkl
-Repository: opencode-backlog
-Workflow filename: publish.yml
-Environment name: <empty>
-Allowed action: npm publish
-```
-
-For later releases, update the package version and push its commit and tag:
+Update the package version, then push its commit and tag:
 
 ```sh
 npm version patch
 git push origin master --follow-tags
 ```
 
-Use `minor` or `major` instead of `patch` when the release requires it. The workflow rejects a tag that does not match `package.json`.
-
-The workflow publishes through npm trusted publishing. It uses OIDC and does not store an npm token.
+Use `minor` or `major` instead of `patch` when the release requires it. Keep the tag equal to the `package.json` version.
 
 ## Compatibility
 
