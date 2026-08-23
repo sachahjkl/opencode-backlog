@@ -1,8 +1,13 @@
 export const BACKLOG_FILE = "BACKLOG.json"
 
+export const CATEGORY_COLORS = ["default", "subdued", "error", "warning", "success", "info"] as const
+
+export type CategoryColor = (typeof CATEGORY_COLORS)[number]
+
 export interface Category {
   readonly id: string
   readonly title: string
+  readonly color?: CategoryColor
 }
 
 export type Status = string
@@ -21,9 +26,9 @@ export interface Backlog {
 }
 
 export const DEFAULT_CATEGORIES: readonly Category[] = [
-  { id: "todo", title: "Todo" },
-  { id: "doing", title: "Doing" },
-  { id: "done", title: "Done" },
+  { id: "todo", title: "Todo", color: "subdued" },
+  { id: "doing", title: "Doing", color: "warning" },
+  { id: "done", title: "Done", color: "success" },
 ]
 
 export const EMPTY_BACKLOG: Backlog = { version: 2, categories: DEFAULT_CATEGORIES, items: [] }
@@ -41,7 +46,14 @@ function validateCategory(category: unknown, index?: number): Category {
   if (typeof category.title !== "string" || category.title.trim().length === 0) {
     throw new Error(`${label} must have a non-empty title`)
   }
-  return { id: category.id, title: category.title }
+  if (category.color !== undefined && !isCategoryColor(category.color)) {
+    throw new Error(`${label} has an invalid color`)
+  }
+  return {
+    id: category.id,
+    title: category.title,
+    ...(category.color === undefined ? {} : { color: category.color }),
+  }
 }
 
 function validateCategories(value: unknown): Category[] {
@@ -90,6 +102,10 @@ function validateItems(value: unknown, categories: readonly Category[]): Backlog
 
 export function isStatus(backlog: Backlog, value: unknown): value is Status {
   return typeof value === "string" && backlog.categories.some(({ id }) => id === value)
+}
+
+export function isCategoryColor(value: unknown): value is CategoryColor {
+  return typeof value === "string" && CATEGORY_COLORS.includes(value as CategoryColor)
 }
 
 export function parseBacklog(value: unknown): Backlog {
@@ -182,6 +198,18 @@ export function renameCategory(backlog: Backlog, id: string, title: string): Bac
     ...backlog,
     categories: backlog.categories.map((category) =>
       category.id === id ? { ...category, title } : category,
+    ),
+  }
+}
+
+export function setCategoryColor(backlog: Backlog, id: string, color: CategoryColor): Backlog {
+  if (!backlog.categories.some((category) => category.id === id)) {
+    throw new Error(`Backlog category ${id} does not exist`)
+  }
+  return {
+    ...backlog,
+    categories: backlog.categories.map((category) =>
+      category.id === id ? { ...category, color } : category,
     ),
   }
 }

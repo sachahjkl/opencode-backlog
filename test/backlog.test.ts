@@ -11,6 +11,7 @@ import {
   purgeCategory,
   removeCategory,
   renameCategory,
+  setCategoryColor,
   sortByStatus,
   type Backlog,
   type BacklogItem,
@@ -56,6 +57,10 @@ describe("parseBacklog", () => {
     assert.throws(
       () => parseBacklog({ version: 2, categories: [categories[0], categories[0]], items: [] }),
       /duplicated/,
+    )
+    assert.throws(
+      () => parseBacklog({ version: 2, categories: [{ id: "todo", title: "Todo", color: "pink" }], items: [] }),
+      /invalid color/,
     )
   })
 
@@ -134,6 +139,11 @@ describe("category operations", () => {
     assert.equal(renameCategory(added, "review", "Code review").categories[1]?.title, "Code review")
     assert.throws(() => addCategory(backlog, categories[0]!), /duplicated/)
     assert.throws(() => renameCategory(backlog, "todo", " "), /non-empty title/)
+  })
+
+  it("sets a category color", () => {
+    assert.equal(setCategoryColor(backlog, "blocked", "error").categories[3]?.color, "error")
+    assert.throws(() => setCategoryColor(backlog, "missing", "info"), /does not exist/)
   })
 
   it("moves a category and its task group", () => {

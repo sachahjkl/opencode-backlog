@@ -1,4 +1,10 @@
-import { isStatus, type Backlog, type Status } from "./backlog.js"
+import {
+  isCategoryColor,
+  isStatus,
+  type Backlog,
+  type CategoryColor,
+  type Status,
+} from "./backlog.js"
 
 export function record(input: unknown): Record<string, unknown> {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
@@ -35,6 +41,13 @@ export function optionalStatus(input: Record<string, unknown>, backlog: Backlog)
   const value = input.status
   if (value === undefined) return undefined
   if (!isStatus(backlog, value)) throw new Error("status must identify a backlog category")
+  return value
+}
+
+export function optionalCategoryColor(input: Record<string, unknown>): CategoryColor | undefined {
+  const value = input.color
+  if (value === undefined) return undefined
+  if (!isCategoryColor(value)) throw new Error("color must identify a supported category color")
   return value
 }
 

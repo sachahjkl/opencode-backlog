@@ -6,6 +6,7 @@ import { join } from "node:path"
 import { afterEach, describe, it } from "node:test"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
+import { DEFAULT_CATEGORIES } from "../src/backlog.js"
 import { readBacklog, readBacklogSync, updateBacklog } from "../src/store.js"
 
 const directories: string[] = []
@@ -22,11 +23,7 @@ describe("backlog store", () => {
     const path = join(directory, "BACKLOG.json")
     const empty = {
       version: 2,
-      categories: [
-        { id: "todo", title: "Todo" },
-        { id: "doing", title: "Doing" },
-        { id: "done", title: "Done" },
-      ],
+      categories: DEFAULT_CATEGORIES,
       items: [],
     }
     assert.deepEqual(await readBacklog(path), empty)
@@ -40,21 +37,13 @@ describe("backlog store", () => {
 
     await updateBacklog(path, () => ({
       version: 2,
-      categories: [
-        { id: "todo", title: "Todo" },
-        { id: "doing", title: "Doing" },
-        { id: "done", title: "Done" },
-      ],
+      categories: DEFAULT_CATEGORIES,
       items: [{ id: "task", title: "Test the store", status: "todo" }],
     }))
 
     assert.deepEqual(await readBacklog(path), {
       version: 2,
-      categories: [
-        { id: "todo", title: "Todo" },
-        { id: "doing", title: "Doing" },
-        { id: "done", title: "Done" },
-      ],
+      categories: DEFAULT_CATEGORIES,
       items: [{ id: "task", title: "Test the store", status: "todo" }],
     })
     assert.match(await readFile(path, "utf8"), /  "version": 2/)
@@ -77,11 +66,7 @@ describe("backlog store", () => {
 
     const stored = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>
     assert.equal(stored.version, 2)
-    assert.deepEqual(stored.categories, [
-      { id: "todo", title: "Todo" },
-      { id: "doing", title: "Doing" },
-      { id: "done", title: "Done" },
-    ])
+    assert.deepEqual(stored.categories, DEFAULT_CATEGORIES)
   })
 
   it("serializes concurrent updates", async () => {

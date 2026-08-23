@@ -6,15 +6,18 @@ import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-j
 import {
   addCategory,
   BACKLOG_FILE,
+  CATEGORY_COLORS,
   EMPTY_BACKLOG,
   moveItem,
   moveCategory,
   purgeCategory,
   removeCategory,
   renameCategory,
+  setCategoryColor,
   type Backlog,
   type BacklogItem,
   type Category,
+  type CategoryColor,
   type Status,
 } from "./backlog.js"
 import { readBacklog, readBacklogSync, updateBacklog } from "./store.js"
@@ -28,6 +31,14 @@ type BrowseAction = "details" | "status" | "edit" | "delete"
 
 function categoryTitle(categories: readonly Category[], status: Status): string {
   return categories.find((category) => category.id === status)?.title ?? status
+}
+
+function categoryColorName(category: Category): CategoryColor {
+  if (category.color) return category.color
+  if (category.id === "todo") return "subdued"
+  if (category.id === "doing") return "warning"
+  if (category.id === "done") return "success"
+  return "info"
 }
 
 function readSnapshot(directory: string): BacklogSnapshot {
@@ -74,9 +85,15 @@ function BacklogView(props: { context: Plugin.Context; directory: string }) {
       <For each={backlog().categories}>
         {(category) => {
           const items = createMemo(() => backlog().items.filter((item) => item.status === category.id))
+          const color = () => {
+            const name = categoryColorName(category)
+            if (name === "default") return theme.text.default
+            if (name === "subdued") return theme.text.subdued
+            return theme.text.feedback[name].default
+          }
           return (
             <box marginTop={1}>
-              <text fg={theme.text.subdued}>
+              <text fg={color()}>
                 <b>{category.title}</b> ({items().length})
               </text>
               <For each={items()}>
@@ -346,7 +363,15 @@ async function addBacklogCategory(context: Plugin.Context): Promise<void> {
   })
   if (!id?.trim()) return
 
-  const category: Category = { id: id.trim(), title: title.trim() }
+  const color = await context.ui.dialog.select<CategoryColor>({
+    title: title.trim(),
+    placeholder: "Category color",
+    current: "info",
+    options: CATEGORY_COLORS.map((value) => ({ title: value, value })),
+  })
+  if (!color) return
+
+  const category: Category = { id: id.trim(), title: title.trim(), color }
   const { path } = backlogLocation(context)
   await updateBacklog(path, (current) => addCategory(current, category))
   context.ui.toast.show({ message: `Added category "${category.title}".`, variant: "success" })
@@ -363,6 +388,20 @@ async function renameBacklogCategory(context: Plugin.Context, category: Category
   const { path } = backlogLocation(context)
   await updateBacklog(path, (current) => renameCategory(current, category.id, title.trim()))
   context.ui.toast.show({ message: `Renamed category to "${title.trim()}".`, variant: "success" })
+}
+
+async function colorBacklogCategory(context: Plugin.Context, category: Category): Promise<void> {
+  const color = await context.ui.dialog.select<CategoryColor>({
+    title: `Color: ${category.title}`,
+    placeholder: "Category color",
+    current: categoryColorName(category),
+    options: CATEGORY_COLORS.map((value) => ({ title: value, value })),
+  })
+  if (!color || color === categoryColorName(category)) return
+
+  const { path } = backlogLocation(context)
+  await updateBacklog(path, (current) => setCategoryColor(current, category.id, color))
+  context.ui.toast.show({ message: `Updated color for "${category.title}".`, variant: "success" })
 }
 
 async function moveBacklogCategory(context: Plugin.Context, category: Category): Promise<void> {
@@ -422,11 +461,12 @@ async function manageBacklogCategories(context: Plugin.Context): Promise<void> {
   if (!category) return
   const taskIDs = backlog.items.filter((item) => item.status === category.id).map((item) => item.id)
   const count = taskIDs.length
-  const action = await context.ui.dialog.select<"rename" | "move" | "purge" | "delete">({
+  const action = await context.ui.dialog.select<"rename" | "color" | "move" | "purge" | "delete">({
     title: category.title,
     placeholder: "Select an action",
     options: [
       { title: "Rename", value: "rename" },
+      { title: "Change color", value: "color" },
       { title: "Move", value: "move" },
       ...(count === 0
         ? [{ title: "Delete empty category", value: "delete" as const }]
@@ -434,6 +474,7 @@ async function manageBacklogCategories(context: Plugin.Context): Promise<void> {
     ],
   })
   if (action === "rename") return renameBacklogCategory(context, category)
+  if (action === "color") return colorBacklogCategory(context, category)
   if (action === "move") return moveBacklogCategory(context, category)
   if (action === "delete") return deleteBacklogCategory(context, category)
   if (action !== "purge") return
