@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto"
-import { watch, type FSWatcher } from "node:fs"
+import { watch } from "node:fs"
 import { join } from "node:path"
 import { Plugin } from "@opencode-ai/plugin/tui"
-import { createMemo, createSignal, For, Show } from "solid-js"
+import { createMemo, createSignal, For, onCleanup, Show } from "solid-js"
 import {
   BACKLOG_FILE,
   EMPTY_BACKLOG,
@@ -36,10 +36,24 @@ function readSnapshot(directory: string): BacklogSnapshot {
   }
 }
 
-function BacklogView(props: { context: Plugin.Context; snapshot: BacklogSnapshot }) {
+function BacklogView(props: { context: Plugin.Context; directory: string }) {
   const theme = props.context.theme
-  const backlog = () => props.snapshot.backlog
-  const error = () => props.snapshot.error
+  const [snapshot, setSnapshot] = createSignal(readSnapshot(props.directory))
+  const backlog = createMemo(() => snapshot().backlog)
+  const error = createMemo(() => snapshot().error)
+  let refresh: ReturnType<typeof setTimeout> | undefined
+
+  const watcher = watch(props.directory, { persistent: false }, () => {
+    clearTimeout(refresh)
+    refresh = setTimeout(() => {
+      setSnapshot(readSnapshot(props.directory))
+    }, 50)
+  })
+
+  onCleanup(() => {
+    clearTimeout(refresh)
+    watcher.close()
+  })
 
   const color = (status: Status) => {
     if (status === "doing") return theme.text.feedback.warning.default
@@ -268,47 +282,23 @@ function Commands(props: { context: Plugin.Context }) {
 export default Plugin.define({
   id: "opencode.backlog.tui",
   setup(context) {
-    const snapshots = new Map<string, BacklogSnapshot>()
-    const watchers = new Map<string, { watcher: FSWatcher; refresh?: ReturnType<typeof setTimeout> }>()
     const releaseCommands = context.ui.slot({
       append: "app",
       render: () => <Commands context={context} />,
     })
 
-    let releaseSlot = () => {}
-    const registerSlot = () =>
-      context.ui.slot({
-        append: "sidebar.content",
-        render: (props) => {
-          const directory = context.data.session.get(props.sessionID)?.location.directory
-          if (!directory) return null
-          if (!snapshots.has(directory)) snapshots.set(directory, readSnapshot(directory))
-          if (!watchers.has(directory)) {
-            const state: { watcher: FSWatcher; refresh?: ReturnType<typeof setTimeout> } = {
-              watcher: watch(directory, { persistent: false }, () => {
-                clearTimeout(state.refresh)
-                state.refresh = setTimeout(() => {
-                  snapshots.set(directory, readSnapshot(directory))
-                  releaseSlot()
-                  releaseSlot = registerSlot()
-                }, 50)
-              }),
-            }
-            watchers.set(directory, state)
-          }
-          return <BacklogView context={context} snapshot={snapshots.get(directory)!} />
-        },
-      })
-    releaseSlot = registerSlot()
+    const releaseSlot = context.ui.slot({
+      append: "sidebar.content",
+      render: (props) => {
+        const directory = context.data.session.get(props.sessionID)?.location.directory
+        if (!directory) return null
+        return <BacklogView context={context} directory={directory} />
+      },
+    })
 
     return () => {
       releaseSlot()
       releaseCommands()
-      for (const state of watchers.values()) {
-        clearTimeout(state.refresh)
-        state.watcher.close()
-      }
-      watchers.clear()
     }
   },
 })

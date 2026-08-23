@@ -1,6 +1,6 @@
 {
   "name": "opencode-backlog",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Project backlog tools and sidebar for OpenCode 2",
   "type": "module",
   "repository": {
@@ -27,7 +27,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node script/build-tui.mjs",
     "check": "tsc -p tsconfig.json --noEmit",
     "prepack": "npm run build",
     "test": "npm run build && tsc -p tsconfig.test.json && node --test .test-dist/test/*.test.js"

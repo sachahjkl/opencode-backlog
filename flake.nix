@@ -32,6 +32,7 @@
               ./README.md
               ./package-lock.json
               ./package.json
+              ./script
               ./src
               ./test
               ./tsconfig.build.json
@@ -41,7 +42,7 @@
           };
           npmDeps = pkgs.fetchNpmDeps {
             inherit src;
-            hash = "sha256-1txV6z45flMUaMYiSOzcFV3mMqr/fLSI/cUYno9N8fQ=";
+            hash = "sha256-E7hy3F1N77H6UHqcQgpDl3DHiaOOfx/ueXSg5y4BTcw=";
           };
           preCommitCheck = git-hooks.lib.${system}.run {
             src = ./.;
