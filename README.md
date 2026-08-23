@@ -152,7 +152,7 @@ Click a sidebar task to open its details. The detail dialog provides `c`, `e`, a
 
 | Tool | Purpose |
 | --- | --- |
-| `backlog_list` | List categories and tasks, with an optional category ID filter. |
+| `backlog_list` | List tasks with optional `category` and `query` filters. |
 | `backlog_add` | Add a task at an optional category and position. |
 | `backlog_update` | Change a task title or notes. |
 | `backlog_move` | Change a task category or position. |

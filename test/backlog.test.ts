@@ -135,6 +135,11 @@ describe("describeBacklog", () => {
       "TODO [todo] (0)\nEmpty\n\nDOING [doing] (0)\nEmpty\n\nDONE [done] (0)\nEmpty\n\nBLOCKED [blocked] (0)\nEmpty",
     )
   })
+
+  it("filters tasks by a case-insensitive search term", () => {
+    assert.equal(describeBacklog(backlog, undefined, "wait"), "BLOCKED [blocked] (1)\n0. d: Waiting")
+    assert.equal(describeBacklog(backlog, ["todo"], "missing"), "No backlog tasks match \"missing\".")
+  })
 })
 
 describe("category operations", () => {

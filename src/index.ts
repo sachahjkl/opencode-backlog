@@ -23,6 +23,7 @@ import {
   optionalCategoryColor,
   optionalCategoryIcon,
   optionalPosition,
+  optionalString,
   optionalStatus,
   record,
   requiredString,
@@ -72,6 +73,15 @@ function replaceItem(items: readonly BacklogItem[], replacement: BacklogItem): B
   return items.map((item) => (item.id === replacement.id ? replacement : item))
 }
 
+function itemLocation(backlog: Backlog, id: string): { item: BacklogItem; position: number } {
+  const item = backlog.items.find((candidate) => candidate.id === id)
+  if (!item) throw new Error(`Backlog item ${id} does not exist`)
+  const position = backlog.items
+    .filter((candidate) => candidate.status === item.status)
+    .findIndex((candidate) => candidate.id === id)
+  return { item, position }
+}
+
 export default Plugin.define({
   id: "opencode.backlog",
   tui: true,
@@ -79,18 +89,23 @@ export default Plugin.define({
     await context.tool.transform((tools) => {
       tools.add({
         name: "backlog_list",
-        description: "List the ordered project backlog, optionally filtered by category ID.",
+        description: "List the ordered project backlog, optionally filtered by category ID and search term.",
         input: {
           type: "object",
-          properties: { status: { type: "string", minLength: 1 } },
+          properties: {
+            category: { type: "string", minLength: 1 },
+            query: { type: "string", minLength: 1 },
+          },
           additionalProperties: false,
         },
         options: { codemode: false },
         execute: async (input, toolContext) => {
           const backlog = await readForSession(context, toolContext.sessionID)
-          const status = optionalStatus(record(input), backlog)
+          const values = record(input)
+          const category = optionalStatus(values, backlog, "category")
+          const query = optionalString(values, "query")
           return {
-            content: describeBacklog(backlog, status === undefined ? undefined : [status]),
+            content: describeBacklog(backlog, category === undefined ? undefined : [category], query),
           }
         },
       })
@@ -133,7 +148,8 @@ export default Plugin.define({
             }
           })
           if (!item) throw new Error("Backlog update did not add an item")
-          return { content: `Added ${item.id}.\n\n${describeBacklog(backlog)}` }
+          const location = itemLocation(backlog, item.id)
+          return { content: `Added ${item.id} to ${location.item.status} at position ${location.position}.` }
         },
       })
 
@@ -159,7 +175,7 @@ export default Plugin.define({
           if (title === undefined && notes === undefined) {
             throw new Error("backlog_update requires a title or notes change")
           }
-          const backlog = await updateForSession(context, toolContext.sessionID, (current) => {
+          await updateForSession(context, toolContext.sessionID, (current) => {
             const item = current.items.find((candidate) => candidate.id === id)
             if (!item) throw new Error(`Backlog item ${id} does not exist`)
             const { notes: _currentNotes, ...itemWithoutNotes } = item
@@ -174,7 +190,7 @@ export default Plugin.define({
               items: sortByStatus(replaceItem(current.items, replacement), current.categories),
             }
           })
-          return { content: `Updated ${id}.\n\n${describeBacklog(backlog)}` }
+          return { content: `Updated ${id}.` }
         },
       })
 
@@ -207,7 +223,8 @@ export default Plugin.define({
               items: moveItem(current.items, id, status, position, current.categories),
             }
           })
-          return { content: `Moved ${id}.\n\n${describeBacklog(backlog)}` }
+          const location = itemLocation(backlog, id)
+          return { content: `Moved ${id} to ${location.item.status} at position ${location.position}.` }
         },
       })
 
@@ -218,7 +235,7 @@ export default Plugin.define({
         options: { codemode: false },
         execute: async (input, toolContext) => {
           const id = requiredString(record(input), "id")
-          const backlog = await updateForSession(context, toolContext.sessionID, (current) => {
+          await updateForSession(context, toolContext.sessionID, (current) => {
             if (!current.items.some((item) => item.id === id)) {
               throw new Error(`Backlog item ${id} does not exist`)
             }
@@ -228,7 +245,7 @@ export default Plugin.define({
               items: current.items.filter((item) => item.id !== id),
             }
           })
-          return { content: `Removed ${id}.\n\n${describeBacklog(backlog)}` }
+          return { content: `Removed ${id}.` }
         },
       })
 
@@ -263,7 +280,8 @@ export default Plugin.define({
               ...(icon === undefined ? {} : { icon }),
             }, position),
           )
-          return { content: `Added category ${id}.\n\n${describeBacklog(backlog)}` }
+          const categoryPosition = backlog.categories.findIndex((category) => category.id === id)
+          return { content: `Added category ${id} at position ${categoryPosition}.` }
         },
       })
 
@@ -281,12 +299,12 @@ export default Plugin.define({
           if (title === undefined && color === undefined && icon === undefined) {
             throw new Error("backlog_category_update requires a title, color, or icon change")
           }
-          const backlog = await updateForSession(context, toolContext.sessionID, (current) => {
+          await updateForSession(context, toolContext.sessionID, (current) => {
             const renamed = title === undefined ? current : renameCategory(current, id, title)
             const colored = color === undefined ? renamed : setCategoryColor(renamed, id, color)
             return icon === undefined ? colored : setCategoryIcon(colored, id, icon)
           })
-          return { content: `Updated category ${id}.\n\n${describeBacklog(backlog)}` }
+          return { content: `Updated category ${id}.` }
         },
       })
 
@@ -311,7 +329,8 @@ export default Plugin.define({
           const backlog = await updateForSession(context, toolContext.sessionID, (current) =>
             moveCategory(current, id, position),
           )
-          return { content: `Moved category ${id}.\n\n${describeBacklog(backlog)}` }
+          const categoryPosition = backlog.categories.findIndex((category) => category.id === id)
+          return { content: `Moved category ${id} to position ${categoryPosition}.` }
         },
       })
 
@@ -322,10 +341,10 @@ export default Plugin.define({
         options: { codemode: false },
         execute: async (input, toolContext) => {
           const id = requiredString(record(input), "id")
-          const backlog = await updateForSession(context, toolContext.sessionID, (current) =>
+          await updateForSession(context, toolContext.sessionID, (current) =>
             removeCategory(current, id),
           )
-          return { content: `Removed category ${id}.\n\n${describeBacklog(backlog)}` }
+          return { content: `Removed category ${id}.` }
         },
       })
 
@@ -336,10 +355,12 @@ export default Plugin.define({
         options: { codemode: false },
         execute: async (input, toolContext) => {
           const id = requiredString(record(input), "id")
-          const backlog = await updateForSession(context, toolContext.sessionID, (current) =>
-            purgeCategory(current, id),
-          )
-          return { content: `Purged tasks from category ${id}.\n\n${describeBacklog(backlog)}` }
+          let count = 0
+          await updateForSession(context, toolContext.sessionID, (current) => {
+            count = current.items.filter((item) => item.status === id).length
+            return purgeCategory(current, id)
+          })
+          return { content: `Purged ${count} ${count === 1 ? "task" : "tasks"} from category ${id}.` }
         },
       })
     })

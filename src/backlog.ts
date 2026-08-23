@@ -178,20 +178,34 @@ export function moveItem(
   )
 }
 
-export function describeBacklog(backlog: Backlog, statuses?: readonly Status[]): string {
+export function describeBacklog(
+  backlog: Backlog,
+  statuses?: readonly Status[],
+  query?: string,
+): string {
   const selected = statuses ?? backlog.categories.map(({ id }) => id)
+  const term = query?.trim().toLocaleLowerCase()
 
-  return selected.map((status) => {
+  const sections = selected.map((status) => {
     const category = backlog.categories.find(({ id }) => id === status)
     if (!category) throw new Error(`Backlog category ${status} does not exist`)
 
-    const items = backlog.items.filter((item) => item.status === status)
+    const items = backlog.items.filter((item) => {
+      if (item.status !== status) return false
+      if (!term) return true
+      return [item.id, item.title, item.notes ?? ""].some((value) => value.toLocaleLowerCase().includes(term))
+    })
     const lines = items.map((item, index) => {
       const notes = item.notes ? `\n   Notes: ${item.notes}` : ""
       return `${index}. ${item.id}: ${item.title}${notes}`
     })
-    return `${category.title.toUpperCase()} [${category.id}] (${items.length})\n${lines.length > 0 ? lines.join("\n") : "Empty"}`
-  }).join("\n\n")
+    return { category, items, lines }
+  })
+  const visible = term ? sections.filter(({ items }) => items.length > 0) : sections
+  if (visible.length === 0) return `No backlog tasks match ${JSON.stringify(query?.trim() ?? "")}.`
+  return visible.map(({ category, items, lines }) =>
+    `${category.title.toUpperCase()} [${category.id}] (${items.length})\n${lines.length > 0 ? lines.join("\n") : "Empty"}`
+  ).join("\n\n")
 }
 
 export function addCategory(

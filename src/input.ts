@@ -39,10 +39,14 @@ export function optionalNullableString(
   throw new Error(`${key} must be a string or null`)
 }
 
-export function optionalStatus(input: Record<string, unknown>, backlog: Backlog): Status | undefined {
-  const value = input.status
+export function optionalStatus(
+  input: Record<string, unknown>,
+  backlog: Backlog,
+  key = "status",
+): Status | undefined {
+  const value = input[key]
   if (value === undefined) return undefined
-  if (!isStatus(backlog, value)) throw new Error("status must identify a backlog category")
+  if (!isStatus(backlog, value)) throw new Error(`${key} must identify a backlog category`)
   return value
 }
 
