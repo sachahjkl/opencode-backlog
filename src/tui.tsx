@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { watch } from "node:fs"
 import { join } from "node:path"
 import { Plugin } from "@opencode-ai/plugin/tui"
@@ -102,10 +103,46 @@ function taskDetails(item: BacklogItem): string {
 }
 
 async function browseBacklog(context: Plugin.Context): Promise<void> {
+  return browseBacklogWithState(context, () => {})
+}
+
+function backlogLocation(context: Plugin.Context): { directory: string; path: string } {
   const route = context.ui.router.current()
   const location = route.type === "session" ? context.data.session.get(route.sessionID)?.location : context.location
   const directory = location?.directory ?? context.data.location.default().directory
-  const path = join(directory, BACKLOG_FILE)
+  return { directory, path: join(directory, BACKLOG_FILE) }
+}
+
+async function addBacklogItem(context: Plugin.Context): Promise<void> {
+  const title = await context.ui.dialog.prompt({
+    title: "New backlog task",
+    placeholder: "Task title",
+  })
+  if (!title?.trim()) return
+
+  const notes = await context.ui.dialog.prompt({
+    title: title.trim(),
+    description: "Optional notes",
+    placeholder: "Leave empty for no notes",
+  })
+  if (notes === undefined) return
+
+  const item: BacklogItem = {
+    id: randomUUID(),
+    title: title.trim(),
+    ...(notes.trim() ? { notes: notes.trim() } : {}),
+    status: "todo",
+  }
+  const { path } = backlogLocation(context)
+  await updateBacklog(path, (current) => ({
+    version: 1,
+    items: moveItem([...current.items, item], item.id, "todo", 0),
+  }))
+  context.ui.toast.show({ message: `Added "${item.title}".`, variant: "success" })
+}
+
+async function moveBacklogItem(context: Plugin.Context): Promise<void> {
+  const { path } = backlogLocation(context)
   const backlog = await readBacklog(path)
 
   if (backlog.items.length === 0) {
@@ -114,8 +151,8 @@ async function browseBacklog(context: Plugin.Context): Promise<void> {
   }
 
   const id = await context.ui.dialog.select({
-    title: "Backlog",
-    placeholder: "Select a task",
+    title: "Move backlog task",
+    placeholder: "Select a task to move",
     options: backlog.items.map((item) => ({
       title: item.title,
       value: item.id,
@@ -127,8 +164,6 @@ async function browseBacklog(context: Plugin.Context): Promise<void> {
 
   const item = backlog.items.find((candidate) => candidate.id === id)
   if (!item) return
-  await context.ui.dialog.alert({ title: item.title, message: taskDetails(item) })
-
   const status = await context.ui.dialog.select<Status>({
     title: `Change status: ${item.title}`,
     current: item.status,
@@ -147,7 +182,48 @@ async function browseBacklog(context: Plugin.Context): Promise<void> {
   context.ui.toast.show({ message: `Moved "${item.title}" to ${statusLabel(status)}.`, variant: "success" })
 }
 
+async function browseBacklogWithState(context: Plugin.Context, setOpen: (open: boolean) => void): Promise<void> {
+  const { path } = backlogLocation(context)
+  const backlog = await readBacklog(path)
+
+  if (backlog.items.length === 0) {
+    await context.ui.dialog.alert({ title: "Backlog", message: "No tasks" })
+    return
+  }
+
+  setOpen(true)
+  const id = await context.ui.dialog
+    .select({
+      title: "Backlog (n: new task)",
+      placeholder: "Select a task",
+      options: backlog.items.map((item) => ({
+        title: item.title,
+        value: item.id,
+        ...(item.notes === undefined ? {} : { description: item.notes }),
+        category: statusLabel(item.status),
+      })),
+    })
+    .finally(() => setOpen(false))
+  if (!id) return
+
+  const item = backlog.items.find((candidate) => candidate.id === id)
+  if (!item) return
+  await context.ui.dialog.alert({ title: item.title, message: taskDetails(item) })
+}
+
 function Commands(props: { context: Plugin.Context }) {
+  const [browseOpen, setBrowseOpen] = createSignal(false)
+  const run = async (operation: () => Promise<void>) => {
+    try {
+      await operation()
+    } catch (cause) {
+      props.context.ui.toast.show({
+        message: cause instanceof Error ? cause.message : String(cause),
+        variant: "error",
+      })
+    }
+  }
+
   props.context.keymap.layer(() => ({
     mode: "global",
     commands: [
@@ -158,15 +234,40 @@ function Commands(props: { context: Plugin.Context }) {
         group: "Backlog",
         palette: true,
         slash: { name: "backlog", aliases: ["tasks"] },
-        async run() {
-          try {
-            await browseBacklog(props.context)
-          } catch (cause) {
-            props.context.ui.toast.show({
-              message: cause instanceof Error ? cause.message : String(cause),
-              variant: "error",
-            })
-          }
+        run: () => run(() => browseBacklogWithState(props.context, setBrowseOpen)),
+      },
+      {
+        id: "backlog.add",
+        title: "Add backlog task",
+        description: "Create a Todo task at the top of the backlog",
+        group: "Backlog",
+        palette: true,
+        slash: { name: "backlog-add", aliases: ["task-add"] },
+        run: () => run(() => addBacklogItem(props.context)),
+      },
+      {
+        id: "backlog.move",
+        title: "Move backlog task",
+        description: "Change a backlog task state",
+        group: "Backlog",
+        palette: true,
+        slash: { name: "backlog-move", aliases: ["task-move"] },
+        run: () => run(() => moveBacklogItem(props.context)),
+      },
+    ],
+  }))
+  props.context.keymap.layer(() => ({
+    mode: "modal",
+    enabled: browseOpen,
+    priority: 100,
+    commands: [
+      {
+        bind: "n",
+        title: "New backlog task",
+        group: "Backlog",
+        run() {
+          setBrowseOpen(false)
+          return run(() => addBacklogItem(props.context))
         },
       },
     ],
