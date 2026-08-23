@@ -41,7 +41,7 @@
           };
           npmDeps = pkgs.fetchNpmDeps {
             inherit src;
-            hash = "sha256-Ts1OfLeoLP9O08l3LKNbofI14Vhp7HBJXCRNCFzplHU=";
+            hash = "sha256-1txV6z45flMUaMYiSOzcFV3mMqr/fLSI/cUYno9N8fQ=";
           };
           preCommitCheck = git-hooks.lib.${system}.run {
             src = ./.;
