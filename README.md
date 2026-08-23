@@ -24,11 +24,50 @@ The server plugin lets the agent list, add, edit, move, reorder, and remove task
 ## Requirements
 
 - OpenCode V2 with the beta plugin API.
-- Nix with flakes enabled.
+- Node.js 24 and npm, or Nix with flakes enabled.
 
-The Nix development shell supplies Node.js 24 and npm.
+The Nix development shell supplies Node.js 24 and npm when you use Nix.
 
 The plugin currently targets `@opencode-ai/plugin@0.0.0-beta-17927`.
+
+## Install With Node.js
+
+Clone the repository and build the plugin:
+
+```sh
+git clone https://github.com/sachahjkl/opencode-backlog.git
+cd opencode-backlog
+npm ci
+npm run build
+pwd
+```
+
+Add the server entrypoint to `opencode.jsonc`. Replace `/absolute/path/to/opencode-backlog` with the path printed by `pwd`.
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugins": [
+    "/absolute/path/to/opencode-backlog/dist/index.js"
+  ]
+}
+```
+
+Add the TUI entrypoint to `~/.config/opencode/cli.json`:
+
+```json
+{
+  "plugins": [
+    "/absolute/path/to/opencode-backlog/dist/tui.js"
+  ]
+}
+```
+
+Restart the OpenCode service and reopen the TUI:
+
+```sh
+opencode2 service restart
+```
 
 ## Install With Nix
 
@@ -74,26 +113,6 @@ opencode2 service restart
 ```
 
 Reopen the TUI to load the TUI plugin.
-
-## Install From Source
-
-Clone the repository and install its locked dependencies inside the Nix development shell:
-
-```sh
-git clone https://github.com/sachahjkl/opencode-backlog.git
-cd opencode-backlog
-nix develop -c npm ci
-nix develop -c npm run build
-```
-
-Configure the generated entrypoints with absolute paths:
-
-```text
-/absolute/path/to/opencode-backlog/dist/index.js
-/absolute/path/to/opencode-backlog/dist/tui.js
-```
-
-Use the same `opencode.jsonc` and `cli.json` structure shown in the Nix installation.
 
 ## Use The Backlog
 
