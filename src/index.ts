@@ -3,8 +3,13 @@ import { join } from "node:path"
 import { Plugin } from "@opencode-ai/plugin"
 import {
   BACKLOG_FILE,
+  addCategory,
   describeBacklog,
   moveItem,
+  moveCategory,
+  purgeCategory,
+  removeCategory,
+  renameCategory,
   sortByStatus,
   type Backlog,
   type BacklogItem,
@@ -22,6 +27,16 @@ const idInput = {
   type: "object",
   properties: { id: { type: "string", minLength: 1 } },
   required: ["id"],
+  additionalProperties: false,
+} as const
+
+const categoryTitleInput = {
+  type: "object",
+  properties: {
+    id: { type: "string", minLength: 1 },
+    title: { type: "string", minLength: 1 },
+  },
+  required: ["id", "title"],
   additionalProperties: false,
 } as const
 
@@ -56,33 +71,31 @@ export default Plugin.define({
     await context.tool.transform((tools) => {
       tools.add({
         name: "backlog_list",
-        description: "List the ordered project backlog, optionally filtered by Kanban state.",
+        description: "List the ordered project backlog, optionally filtered by category ID.",
         input: {
           type: "object",
-          properties: { status: { type: "string", enum: ["todo", "doing", "done"] } },
+          properties: { status: { type: "string", minLength: 1 } },
           additionalProperties: false,
         },
         options: { codemode: false },
         execute: async (input, toolContext) => {
-          const status = optionalStatus(record(input))
+          const backlog = await readForSession(context, toolContext.sessionID)
+          const status = optionalStatus(record(input), backlog)
           return {
-            content: describeBacklog(
-              await readForSession(context, toolContext.sessionID),
-              status === undefined ? undefined : [status],
-            ),
+            content: describeBacklog(backlog, status === undefined ? undefined : [status]),
           }
         },
       })
 
       tools.add({
         name: "backlog_add",
-        description: "Add a task to the project backlog at a position within a Kanban state.",
+        description: "Add a task at a zero-based position within a backlog category.",
         input: {
           type: "object",
           properties: {
             title: { type: "string", minLength: 1 },
             notes: { type: "string" },
-            status: { type: "string", enum: ["todo", "doing", "done"] },
+            status: { type: "string", minLength: 1 },
             position: { type: "integer", minimum: 0 },
           },
           required: ["title"],
@@ -93,18 +106,25 @@ export default Plugin.define({
           const values = record(input)
           const title = requiredString(values, "title")
           const notes = optionalNullableString(values, "notes") ?? undefined
-          const status = optionalStatus(values) ?? "todo"
           const position = optionalPosition(values)
-          const item: BacklogItem = {
-            id: randomUUID(),
-            title,
-            ...(notes === undefined ? {} : { notes }),
-            status,
-          }
-          const backlog = await updateForSession(context, toolContext.sessionID, (current) => ({
-            version: 1,
-            items: moveItem([...current.items, item], item.id, status, position),
-          }))
+          let item: BacklogItem | undefined
+          const backlog = await updateForSession(context, toolContext.sessionID, (current) => {
+            const firstCategory = current.categories[0]
+            if (!firstCategory) throw new Error("The backlog must have at least one category")
+            const status = optionalStatus(values, current) ?? firstCategory.id
+            item = {
+              id: randomUUID(),
+              title,
+              ...(notes === undefined ? {} : { notes }),
+              status,
+            }
+            return {
+              version: 2,
+              categories: current.categories,
+              items: moveItem([...current.items, item], item.id, status, position, current.categories),
+            }
+          })
+          if (!item) throw new Error("Backlog update did not add an item")
           return { content: `Added ${item.id}.\n\n${describeBacklog(backlog)}` }
         },
       })
@@ -140,7 +160,11 @@ export default Plugin.define({
               ...(title === undefined ? {} : { title }),
               ...(notes === undefined || notes === null ? {} : { notes }),
             }
-            return { version: 1, items: sortByStatus(replaceItem(current.items, replacement)) }
+            return {
+              version: 2,
+              categories: current.categories,
+              items: sortByStatus(replaceItem(current.items, replacement), current.categories),
+            }
           })
           return { content: `Updated ${id}.\n\n${describeBacklog(backlog)}` }
         },
@@ -148,12 +172,12 @@ export default Plugin.define({
 
       tools.add({
         name: "backlog_move",
-        description: "Change a task Kanban state or its zero-based position within that state.",
+        description: "Change a task category or its zero-based position within that category.",
         input: {
           type: "object",
           properties: {
             id: { type: "string", minLength: 1 },
-            status: { type: "string", enum: ["todo", "doing", "done"] },
+            status: { type: "string", minLength: 1 },
             position: { type: "integer", minimum: 0 },
           },
           required: ["id"],
@@ -163,15 +187,18 @@ export default Plugin.define({
         execute: async (input, toolContext) => {
           const values = record(input)
           const id = requiredString(values, "id")
-          const status = optionalStatus(values)
           const position = optionalPosition(values)
-          if (status === undefined && position === undefined) {
-            throw new Error("backlog_move requires a status or position change")
-          }
-          const backlog = await updateForSession(context, toolContext.sessionID, (current) => ({
-            version: 1,
-            items: moveItem(current.items, id, status, position),
-          }))
+          const backlog = await updateForSession(context, toolContext.sessionID, (current) => {
+            const status = optionalStatus(values, current)
+            if (status === undefined && position === undefined) {
+              throw new Error("backlog_move requires a status or position change")
+            }
+            return {
+              version: 2,
+              categories: current.categories,
+              items: moveItem(current.items, id, status, position, current.categories),
+            }
+          })
           return { content: `Moved ${id}.\n\n${describeBacklog(backlog)}` }
         },
       })
@@ -187,9 +214,108 @@ export default Plugin.define({
             if (!current.items.some((item) => item.id === id)) {
               throw new Error(`Backlog item ${id} does not exist`)
             }
-            return { version: 1, items: current.items.filter((item) => item.id !== id) }
+            return {
+              version: 2,
+              categories: current.categories,
+              items: current.items.filter((item) => item.id !== id),
+            }
           })
           return { content: `Removed ${id}.\n\n${describeBacklog(backlog)}` }
+        },
+      })
+
+      tools.add({
+        name: "backlog_category_add",
+        description: "Add a backlog category with a unique ID, title, and optional zero-based position.",
+        input: {
+          type: "object",
+          properties: {
+            id: { type: "string", minLength: 1 },
+            title: { type: "string", minLength: 1 },
+            position: { type: "integer", minimum: 0 },
+          },
+          required: ["id", "title"],
+          additionalProperties: false,
+        },
+        options: { codemode: false },
+        execute: async (input, toolContext) => {
+          const values = record(input)
+          const id = requiredString(values, "id")
+          const title = requiredString(values, "title")
+          const position = optionalPosition(values)
+          const backlog = await updateForSession(context, toolContext.sessionID, (current) =>
+            addCategory(current, { id, title }, position),
+          )
+          return { content: `Added category ${id}.\n\n${describeBacklog(backlog)}` }
+        },
+      })
+
+      tools.add({
+        name: "backlog_category_update",
+        description: "Change a backlog category title.",
+        input: categoryTitleInput,
+        options: { codemode: false },
+        execute: async (input, toolContext) => {
+          const values = record(input)
+          const id = requiredString(values, "id")
+          const title = requiredString(values, "title")
+          const backlog = await updateForSession(context, toolContext.sessionID, (current) =>
+            renameCategory(current, id, title),
+          )
+          return { content: `Updated category ${id}.\n\n${describeBacklog(backlog)}` }
+        },
+      })
+
+      tools.add({
+        name: "backlog_category_move",
+        description: "Move a backlog category to a zero-based position.",
+        input: {
+          type: "object",
+          properties: {
+            id: { type: "string", minLength: 1 },
+            position: { type: "integer", minimum: 0 },
+          },
+          required: ["id", "position"],
+          additionalProperties: false,
+        },
+        options: { codemode: false },
+        execute: async (input, toolContext) => {
+          const values = record(input)
+          const id = requiredString(values, "id")
+          const position = optionalPosition(values)
+          if (position === undefined) throw new Error("position is required")
+          const backlog = await updateForSession(context, toolContext.sessionID, (current) =>
+            moveCategory(current, id, position),
+          )
+          return { content: `Moved category ${id}.\n\n${describeBacklog(backlog)}` }
+        },
+      })
+
+      tools.add({
+        name: "backlog_category_remove",
+        description: "Remove an empty backlog category.",
+        input: idInput,
+        options: { codemode: false },
+        execute: async (input, toolContext) => {
+          const id = requiredString(record(input), "id")
+          const backlog = await updateForSession(context, toolContext.sessionID, (current) =>
+            removeCategory(current, id),
+          )
+          return { content: `Removed category ${id}.\n\n${describeBacklog(backlog)}` }
+        },
+      })
+
+      tools.add({
+        name: "backlog_category_purge",
+        description: "Permanently remove all tasks in a backlog category while retaining the category.",
+        input: idInput,
+        options: { codemode: false },
+        execute: async (input, toolContext) => {
+          const id = requiredString(record(input), "id")
+          const backlog = await updateForSession(context, toolContext.sessionID, (current) =>
+            purgeCategory(current, id),
+          )
+          return { content: `Purged tasks from category ${id}.\n\n${describeBacklog(backlog)}` }
         },
       })
     })

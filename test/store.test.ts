@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { execFile } from "node:child_process"
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, it } from "node:test"
@@ -20,8 +20,17 @@ describe("backlog store", () => {
     const directory = await mkdtemp(join(tmpdir(), "opencode-backlog-"))
     directories.push(directory)
     const path = join(directory, "BACKLOG.json")
-    assert.deepEqual(await readBacklog(path), { version: 1, items: [] })
-    assert.deepEqual(readBacklogSync(path), { version: 1, items: [] })
+    const empty = {
+      version: 2,
+      categories: [
+        { id: "todo", title: "Todo" },
+        { id: "doing", title: "Doing" },
+        { id: "done", title: "Done" },
+      ],
+      items: [],
+    }
+    assert.deepEqual(await readBacklog(path), empty)
+    assert.deepEqual(readBacklogSync(path), empty)
   })
 
   it("writes valid formatted JSON", async () => {
@@ -30,15 +39,49 @@ describe("backlog store", () => {
     const path = join(directory, "BACKLOG.json")
 
     await updateBacklog(path, () => ({
-      version: 1,
+      version: 2,
+      categories: [
+        { id: "todo", title: "Todo" },
+        { id: "doing", title: "Doing" },
+        { id: "done", title: "Done" },
+      ],
       items: [{ id: "task", title: "Test the store", status: "todo" }],
     }))
 
     assert.deepEqual(await readBacklog(path), {
-      version: 1,
+      version: 2,
+      categories: [
+        { id: "todo", title: "Todo" },
+        { id: "doing", title: "Doing" },
+        { id: "done", title: "Done" },
+      ],
       items: [{ id: "task", title: "Test the store", status: "todo" }],
     })
-    assert.match(await readFile(path, "utf8"), /  "version": 1/)
+    assert.match(await readFile(path, "utf8"), /  "version": 2/)
+  })
+
+  it("writes a version 1 backlog as version 2 on its next update", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "opencode-backlog-"))
+    directories.push(directory)
+    const path = join(directory, "BACKLOG.json")
+    await writeFile(path, JSON.stringify({
+      version: 1,
+      items: [{ id: "legacy", title: "Migrate", status: "todo" }],
+    }))
+
+    assert.equal((await readBacklog(path)).version, 2)
+    assert.equal(readBacklogSync(path).version, 2)
+    assert.equal(JSON.parse(await readFile(path, "utf8")).version, 1)
+
+    await updateBacklog(path, (current) => current)
+
+    const stored = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>
+    assert.equal(stored.version, 2)
+    assert.deepEqual(stored.categories, [
+      { id: "todo", title: "Todo" },
+      { id: "doing", title: "Doing" },
+      { id: "done", title: "Done" },
+    ])
   })
 
   it("serializes concurrent updates", async () => {
@@ -49,7 +92,7 @@ describe("backlog store", () => {
     await Promise.all(
       ["one", "two", "three"].map((id) =>
         updateBacklog(path, (backlog) => ({
-          version: 1,
+          ...backlog,
           items: [...backlog.items, { id, title: id, status: "todo" }],
         })),
       ),
@@ -70,7 +113,7 @@ describe("backlog store", () => {
       import { updateBacklog } from ${JSON.stringify(storeUrl)}
       const [path, id] = process.argv.slice(1)
       await updateBacklog(path, (backlog) => ({
-        version: 1,
+        ...backlog,
         items: [...backlog.items, { id, title: id, status: "todo" }],
       }))
     `

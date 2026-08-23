@@ -4,12 +4,17 @@ import { join } from "node:path"
 import { Plugin } from "@opencode-ai/plugin/tui"
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import {
+  addCategory,
   BACKLOG_FILE,
   EMPTY_BACKLOG,
-  STATUSES,
   moveItem,
+  moveCategory,
+  purgeCategory,
+  removeCategory,
+  renameCategory,
   type Backlog,
   type BacklogItem,
+  type Category,
   type Status,
 } from "./backlog.js"
 import { readBacklog, readBacklogSync, updateBacklog } from "./store.js"
@@ -21,10 +26,8 @@ interface BacklogSnapshot {
 
 type BrowseAction = "details" | "status" | "edit" | "delete"
 
-function statusLabel(status: Status): string {
-  if (status === "todo") return "Todo"
-  if (status === "doing") return "Doing"
-  return "Done"
+function categoryTitle(categories: readonly Category[], status: Status): string {
+  return categories.find((category) => category.id === status)?.title ?? status
 }
 
 function readSnapshot(directory: string): BacklogSnapshot {
@@ -57,12 +60,6 @@ function BacklogView(props: { context: Plugin.Context; directory: string }) {
     watcher.close()
   })
 
-  const color = (status: Status) => {
-    if (status === "doing") return theme.text.feedback.warning.default
-    if (status === "done") return theme.text.feedback.success.default
-    return theme.text.subdued
-  }
-
   return (
     <box>
       <text fg={theme.text.default}>
@@ -74,34 +71,24 @@ function BacklogView(props: { context: Plugin.Context; directory: string }) {
       <Show when={!error() && backlog().items.length === 0}>
         <text fg={theme.text.subdued}>No tasks</text>
       </Show>
-      <For each={STATUSES}>
-        {(status) => {
-          const items = createMemo(() => backlog().items.filter((item) => item.status === status))
+      <For each={backlog().categories}>
+        {(category) => {
+          const items = createMemo(() => backlog().items.filter((item) => item.status === category.id))
           return (
-            <Show when={items().length > 0}>
-              <box marginTop={1}>
-                <text fg={color(status)}>
-                  <b>{statusLabel(status)}</b> ({items().length})
-                </text>
-                <For each={items()}>
-                  {(item) => (
-                    <box
-                      flexDirection="row"
-                      gap={1}
-                      minWidth={0}
-                      onMouseUp={() => void showTaskDetails(props.context, item)}
-                    >
-                      <text fg={color(status)} flexShrink={0}>
-                        {status === "done" ? "✓" : status === "doing" ? "●" : "○"}
-                      </text>
-                      <text fg={theme.text.default} wrapMode="none" truncate flexGrow={1} minWidth={0}>
-                        {item.title}
-                      </text>
-                    </box>
-                  )}
-                </For>
-              </box>
-            </Show>
+            <box marginTop={1}>
+              <text fg={theme.text.subdued}>
+                <b>{category.title}</b> ({items().length})
+              </text>
+              <For each={items()}>
+                {(item) => (
+                  <box minWidth={0} onMouseUp={() => void showTaskDetails(props.context, item, backlog().categories)}>
+                    <text fg={theme.text.default} wrapMode="none" truncate flexGrow={1} minWidth={0}>
+                      {item.title}
+                    </text>
+                  </box>
+                )}
+              </For>
+            </box>
           )
         }}
       </For>
@@ -109,8 +96,8 @@ function BacklogView(props: { context: Plugin.Context; directory: string }) {
   )
 }
 
-function taskDetails(item: BacklogItem): string {
-  return [`Status: ${statusLabel(item.status)}`, `ID: ${item.id}`, "", item.notes ?? "No notes"].join("\n")
+function taskDetails(item: BacklogItem, categories: readonly Category[]): string {
+  return [`Category: ${categoryTitle(categories, item.status)}`, `ID: ${item.id}`, "", item.notes ?? "No notes"].join("\n")
 }
 
 function TaskAction(props: {
@@ -130,7 +117,7 @@ function TaskAction(props: {
   )
 }
 
-function TaskDetailsDialog(props: { context: Plugin.Context; item: BacklogItem }) {
+function TaskDetailsDialog(props: { context: Plugin.Context; item: BacklogItem; categories: readonly Category[] }) {
   const run = (operation: () => Promise<void>) => {
     props.context.ui.dialog.clear()
     void operation().catch((cause) =>
@@ -166,7 +153,7 @@ function TaskDetailsDialog(props: { context: Plugin.Context; item: BacklogItem }
         </text>
       </box>
       <text fg={props.context.theme.text.subdued} wrapMode="word">
-        {taskDetails(props.item)}
+        {taskDetails(props.item, props.categories)}
       </text>
       <box flexDirection="row" justifyContent="flex-end" gap={2} paddingBottom={1}>
         <TaskAction context={props.context} shortcut="c" label="status" run={changeStatus} />
@@ -177,8 +164,8 @@ function TaskDetailsDialog(props: { context: Plugin.Context; item: BacklogItem }
   )
 }
 
-function showTaskDetails(context: Plugin.Context, item: BacklogItem): void {
-  context.ui.dialog.show(() => <TaskDetailsDialog context={context} item={item} />)
+function showTaskDetails(context: Plugin.Context, item: BacklogItem, categories: readonly Category[]): void {
+  context.ui.dialog.show(() => <TaskDetailsDialog context={context} item={item} categories={categories} />)
 }
 
 async function browseBacklog(context: Plugin.Context): Promise<void> {
@@ -193,6 +180,7 @@ function backlogLocation(context: Plugin.Context): { directory: string; path: st
 }
 
 async function addBacklogItem(context: Plugin.Context): Promise<void> {
+  const { path } = backlogLocation(context)
   const title = await context.ui.dialog.prompt({
     title: "New backlog task",
     placeholder: "Task title",
@@ -206,38 +194,44 @@ async function addBacklogItem(context: Plugin.Context): Promise<void> {
   })
   if (notes === undefined) return
 
-  const item: BacklogItem = {
-    id: randomUUID(),
-    title: title.trim(),
-    ...(notes.trim() ? { notes: notes.trim() } : {}),
-    status: "todo",
-  }
-  const { path } = backlogLocation(context)
-  await updateBacklog(path, (current) => ({
-    version: 1,
-    items: moveItem([...current.items, item], item.id, "todo", 0),
-  }))
+  let item: BacklogItem | undefined
+  await updateBacklog(path, (current) => {
+    const firstCategory = current.categories[0]
+    if (!firstCategory) throw new Error("Add a backlog category before adding a task")
+    item = {
+      id: randomUUID(),
+      title: title.trim(),
+      ...(notes.trim() ? { notes: notes.trim() } : {}),
+      status: firstCategory.id,
+    }
+    return {
+      ...current,
+      items: moveItem([...current.items, item], item.id, firstCategory.id, 0, current.categories),
+    }
+  })
+  if (!item) throw new Error("Backlog update did not add a task")
   context.ui.toast.show({ message: `Added "${item.title}".`, variant: "success" })
 }
 
 async function changeTaskStatus(context: Plugin.Context, item: BacklogItem): Promise<void> {
+  const { path } = backlogLocation(context)
+  const backlog = await readBacklog(path)
   const status = await context.ui.dialog.select<Status>({
-    title: `Change status: ${item.title}`,
+    title: `Change category: ${item.title}`,
     current: item.status,
-    options: STATUSES.map((candidate) => ({
-      title: statusLabel(candidate),
-      value: candidate,
-      ...(candidate === item.status ? { description: "Current status" } : {}),
+    options: backlog.categories.map((category) => ({
+      title: category.title,
+      value: category.id,
+      ...(category.id === item.status ? { description: "Current category" } : {}),
     })),
   })
   if (!status || status === item.status) return
 
-  const { path } = backlogLocation(context)
   await updateBacklog(path, (current) => ({
-    version: 1,
-    items: moveItem(current.items, item.id, status, undefined),
+    ...current,
+    items: moveItem(current.items, item.id, status, undefined, current.categories),
   }))
-  context.ui.toast.show({ message: `Moved "${item.title}" to ${statusLabel(status)}.`, variant: "success" })
+  context.ui.toast.show({ message: `Moved "${item.title}" to ${categoryTitle(backlog.categories, status)}.`, variant: "success" })
 }
 
 async function editBacklogItem(context: Plugin.Context, item: BacklogItem): Promise<void> {
@@ -258,7 +252,7 @@ async function editBacklogItem(context: Plugin.Context, item: BacklogItem): Prom
 
   const { path } = backlogLocation(context)
   await updateBacklog(path, (current) => ({
-    version: 1,
+    ...current,
     items: current.items.map((candidate) => {
       if (candidate.id !== item.id) return candidate
       return {
@@ -282,10 +276,176 @@ async function removeBacklogItem(context: Plugin.Context, item: BacklogItem): Pr
 
   const { path } = backlogLocation(context)
   await updateBacklog(path, (current) => ({
-    version: 1,
+    ...current,
     items: current.items.filter((candidate) => candidate.id !== item.id),
   }))
   context.ui.toast.show({ message: `Deleted "${item.title}".`, variant: "success" })
+}
+
+async function purgeConfirmedCategory(path: string, status: Status, confirmedIDs: readonly string[]): Promise<void> {
+  await updateBacklog(path, (current) => {
+    const currentIDs = current.items.filter((item) => item.status === status).map((item) => item.id)
+    const changed = currentIDs.length !== confirmedIDs.length || currentIDs.some((id) => !confirmedIDs.includes(id))
+    if (changed) throw new Error("The category changed. Review its tasks and confirm the purge again.")
+    return purgeCategory(current, status)
+  })
+}
+
+async function purgeBacklogCategory(context: Plugin.Context): Promise<void> {
+  const { path } = backlogLocation(context)
+  const backlog = await readBacklog(path)
+  const status = await context.ui.dialog.select<Status>({
+    title: "Purge backlog category",
+    placeholder: "Select a category",
+    options: backlog.categories.map((category) => {
+      const count = backlog.items.filter((item) => item.status === category.id).length
+      return {
+        title: category.title,
+        value: category.id,
+        description: `${count} ${count === 1 ? "task" : "tasks"}`,
+      }
+    }),
+  })
+  if (!status) return
+
+  const category = backlog.categories.find((candidate) => candidate.id === status)
+  if (!category) return
+  const taskIDs = backlog.items.filter((item) => item.status === status).map((item) => item.id)
+  const count = taskIDs.length
+  const confirmed = await context.ui.dialog.confirm({
+    title: `Purge ${category.title}`,
+    message: `Permanently delete ${count} ${count === 1 ? "task" : "tasks"} from this category?`,
+    label: { confirm: "Purge", cancel: "Cancel" },
+  })
+  if (!confirmed) return
+
+  await purgeConfirmedCategory(path, status, taskIDs)
+  context.ui.toast.show({
+    message: `Purged ${count} ${count === 1 ? "task" : "tasks"} from ${category.title}.`,
+    variant: "success",
+  })
+}
+
+async function addBacklogCategory(context: Plugin.Context): Promise<void> {
+  const title = await context.ui.dialog.prompt({
+    title: "New backlog category",
+    placeholder: "Category title",
+  })
+  if (!title?.trim()) return
+
+  const suggestedID = title
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+  const id = await context.ui.dialog.prompt({
+    title: title.trim(),
+    description: "Stable category ID",
+    placeholder: "Category ID",
+    value: suggestedID,
+  })
+  if (!id?.trim()) return
+
+  const category: Category = { id: id.trim(), title: title.trim() }
+  const { path } = backlogLocation(context)
+  await updateBacklog(path, (current) => addCategory(current, category))
+  context.ui.toast.show({ message: `Added category "${category.title}".`, variant: "success" })
+}
+
+async function renameBacklogCategory(context: Plugin.Context, category: Category): Promise<void> {
+  const title = await context.ui.dialog.prompt({
+    title: "Rename backlog category",
+    placeholder: "Category title",
+    value: category.title,
+  })
+  if (!title?.trim() || title.trim() === category.title) return
+
+  const { path } = backlogLocation(context)
+  await updateBacklog(path, (current) => renameCategory(current, category.id, title.trim()))
+  context.ui.toast.show({ message: `Renamed category to "${title.trim()}".`, variant: "success" })
+}
+
+async function moveBacklogCategory(context: Plugin.Context, category: Category): Promise<void> {
+  const { path } = backlogLocation(context)
+  const backlog = await readBacklog(path)
+  const position = await context.ui.dialog.select<number>({
+    title: `Move ${category.title}`,
+    placeholder: "Select a position",
+    options: backlog.categories.map((candidate, index) => ({
+      title: `${index + 1}. ${candidate.title}`,
+      value: index,
+      ...(candidate.id === category.id ? { description: "Current position" } : {}),
+    })),
+  })
+  if (position === undefined || backlog.categories[position]?.id === category.id) return
+
+  await updateBacklog(path, (current) => moveCategory(current, category.id, position))
+  context.ui.toast.show({ message: `Moved category "${category.title}".`, variant: "success" })
+}
+
+async function deleteBacklogCategory(context: Plugin.Context, category: Category): Promise<void> {
+  const confirmed = await context.ui.dialog.confirm({
+    title: "Delete backlog category",
+    message: category.title,
+    label: { confirm: "Delete", cancel: "Cancel" },
+  })
+  if (!confirmed) return
+
+  const { path } = backlogLocation(context)
+  await updateBacklog(path, (current) => removeCategory(current, category.id))
+  context.ui.toast.show({ message: `Deleted category "${category.title}".`, variant: "success" })
+}
+
+async function manageBacklogCategories(context: Plugin.Context): Promise<void> {
+  const { path } = backlogLocation(context)
+  const backlog = await readBacklog(path)
+  let addSelection = `__add:${randomUUID()}`
+  while (backlog.categories.some((category) => category.id === addSelection)) {
+    addSelection = `__add:${randomUUID()}`
+  }
+  const selection = await context.ui.dialog.select({
+    title: "Backlog categories",
+    placeholder: "Add or select a category",
+    options: [
+      { title: "Add category", value: addSelection },
+      ...backlog.categories.map((category) => ({
+        title: category.title,
+        value: category.id,
+        description: `${category.id} - ${backlog.items.filter((item) => item.status === category.id).length} tasks`,
+      })),
+    ],
+  })
+  if (!selection) return
+  if (selection === addSelection) return addBacklogCategory(context)
+
+  const category = backlog.categories.find((candidate) => candidate.id === selection)
+  if (!category) return
+  const taskIDs = backlog.items.filter((item) => item.status === category.id).map((item) => item.id)
+  const count = taskIDs.length
+  const action = await context.ui.dialog.select<"rename" | "move" | "purge" | "delete">({
+    title: category.title,
+    placeholder: "Select an action",
+    options: [
+      { title: "Rename", value: "rename" },
+      { title: "Move", value: "move" },
+      ...(count === 0
+        ? [{ title: "Delete empty category", value: "delete" as const }]
+        : [{ title: `Purge category and ${count} ${count === 1 ? "task" : "tasks"}`, value: "purge" as const }]),
+    ],
+  })
+  if (action === "rename") return renameBacklogCategory(context, category)
+  if (action === "move") return moveBacklogCategory(context, category)
+  if (action === "delete") return deleteBacklogCategory(context, category)
+  if (action !== "purge") return
+
+  const confirmed = await context.ui.dialog.confirm({
+    title: `Purge ${category.title}`,
+    message: `Permanently delete ${count} ${count === 1 ? "task" : "tasks"} from this category?`,
+    label: { confirm: "Purge", cancel: "Cancel" },
+  })
+  if (!confirmed) return
+  await purgeConfirmedCategory(path, category.id, taskIDs)
+  context.ui.toast.show({ message: `Purged category "${category.title}".`, variant: "success" })
 }
 
 async function moveBacklogItem(context: Plugin.Context): Promise<void> {
@@ -304,7 +464,7 @@ async function moveBacklogItem(context: Plugin.Context): Promise<void> {
       title: item.title,
       value: item.id,
       ...(item.notes === undefined ? {} : { description: item.notes }),
-      category: statusLabel(item.status),
+      category: categoryTitle(backlog.categories, item.status),
     })),
   })
   if (!id) return
@@ -336,7 +496,7 @@ async function browseBacklogWithState(
         title: item.title,
         value: item.id,
         ...(item.notes === undefined ? {} : { description: item.notes }),
-        category: statusLabel(item.status),
+        category: categoryTitle(backlog.categories, item.status),
       })),
     })
     .finally(() => setOpen(false))
@@ -348,7 +508,7 @@ async function browseBacklogWithState(
   if (selectedAction === "status") return changeTaskStatus(context, item)
   if (selectedAction === "edit") return editBacklogItem(context, item)
   if (selectedAction === "delete") return removeBacklogItem(context, item)
-  showTaskDetails(context, item)
+  showTaskDetails(context, item, backlog.categories)
 }
 
 function Commands(props: { context: Plugin.Context }) {
@@ -371,7 +531,7 @@ function Commands(props: { context: Plugin.Context }) {
       {
         id: "backlog.browse",
         title: "Browse backlog",
-        description: "View backlog tasks and change their status",
+        description: "View backlog tasks and change their category",
         group: "Backlog",
         palette: true,
         slash: { name: "backlog", aliases: ["tasks"] },
@@ -383,7 +543,7 @@ function Commands(props: { context: Plugin.Context }) {
       {
         id: "backlog.add",
         title: "Add backlog task",
-        description: "Create a Todo task at the top of the backlog",
+        description: "Create a task at the top of the first category",
         group: "Backlog",
         palette: true,
         slash: { name: "backlog-add", aliases: ["task-add"] },
@@ -392,11 +552,29 @@ function Commands(props: { context: Plugin.Context }) {
       {
         id: "backlog.move",
         title: "Move backlog task",
-        description: "Change a backlog task state",
+        description: "Change a backlog task category",
         group: "Backlog",
         palette: true,
         slash: { name: "backlog-move", aliases: ["task-move"] },
         run: () => run(() => moveBacklogItem(props.context)),
+      },
+      {
+        id: "backlog.purge",
+        title: "Purge backlog category",
+        description: "Permanently delete every task in a category",
+        group: "Backlog",
+        palette: true,
+        slash: { name: "backlog-purge" },
+        run: () => run(() => purgeBacklogCategory(props.context)),
+      },
+      {
+        id: "backlog.categories",
+        title: "Manage backlog categories",
+        description: "Add, rename, move, purge, or delete a category",
+        group: "Backlog",
+        palette: true,
+        slash: { name: "backlog-categories" },
+        run: () => run(() => manageBacklogCategories(props.context)),
       },
     ],
   }))
@@ -415,8 +593,17 @@ function Commands(props: { context: Plugin.Context }) {
         },
       },
       {
+        bind: "p",
+        title: "Purge backlog category",
+        group: "Backlog",
+        run() {
+          setBrowseOpen(false)
+          return run(() => purgeBacklogCategory(props.context))
+        },
+      },
+      {
         bind: "c",
-        title: "Change selected task status",
+        title: "Change selected task category",
         group: "Backlog",
         run() {
           setBrowseAction("status")

@@ -10,18 +10,24 @@ Published package: [opencode-backlog on npm](https://www.npmjs.com/package/openc
 
 ## What It Does
 
-The plugin stores tasks in `BACKLOG.json` at the project root. Each task has a title, optional notes, and one Kanban state:
+The plugin stores tasks and ordered categories in `BACKLOG.json` at the project root.
+
+New backlogs contain these categories:
 
 - `todo`
 - `doing`
 - `done`
 
-The server plugin lets the agent list, add, edit, move, reorder, and remove tasks. The TUI plugin provides:
+You can add, rename, reorder, purge, and remove categories. Each category has a stable ID and a modifiable title.
+
+The server plugin manages tasks and categories. The TUI plugin provides:
 
 - A live backlog summary below the sidebar context.
 - A `Browse backlog` command in the command palette.
 - `/backlog` and `/tasks` slash commands.
-- Task details and status changes from the TUI.
+- Task details and category changes from the TUI.
+- `/backlog-purge` to remove every task from a selected category.
+- `/backlog-categories` to manage categories.
 
 ## Requirements
 
@@ -121,13 +127,13 @@ Reopen the TUI to load the TUI plugin.
 Ask the agent to manage tasks in normal language:
 
 ```text
-Add a todo task to document the release process.
-Move the release task to doing.
-List only the todo tasks.
-Mark the current task as done.
+Add a Todo task to document the release process.
+Add a Blocked category after Doing.
+Move the release task to Blocked.
+Purge all tasks in Done.
 ```
 
-Open the command palette and select `Browse backlog` to inspect tasks. Select a task to view its ID, notes, and current state. Then select its new state.
+Open the command palette and select `Browse backlog` to inspect tasks. Select a task to view its ID, notes, and category.
 
 Run `/backlog` or `/tasks` to open the same browser directly.
 
@@ -135,9 +141,10 @@ The backlog browser provides these shortcuts:
 
 - `Enter` opens the selected task details.
 - `n` creates a task.
-- `c` changes the selected task state.
+- `c` changes the selected task category.
 - `e` edits the selected task.
 - `d` deletes the selected task after confirmation.
+- `p` purges all tasks from a selected category after confirmation.
 
 Click a sidebar task to open its details. The detail dialog provides `c`, `e`, and `d` for the same actions.
 
@@ -145,21 +152,32 @@ Click a sidebar task to open its details. The detail dialog provides `c`, `e`, a
 
 | Tool | Purpose |
 | --- | --- |
-| `backlog_list` | List all tasks or filter by `todo`, `doing`, or `done`. |
-| `backlog_add` | Add a task at an optional state and position. |
+| `backlog_list` | List categories and tasks, with an optional category ID filter. |
+| `backlog_add` | Add a task at an optional category and position. |
 | `backlog_update` | Change a task title or notes. |
-| `backlog_move` | Change a task state or position. |
+| `backlog_move` | Change a task category or position. |
 | `backlog_remove` | Permanently remove a task. |
+| `backlog_category_add` | Add a category with a stable ID and title. |
+| `backlog_category_update` | Change a category title. |
+| `backlog_category_move` | Change a category position. |
+| `backlog_category_remove` | Remove an empty category. |
+| `backlog_category_purge` | Permanently remove all tasks from a category. |
 
 The agent receives task IDs from `backlog_list` and from each mutation result.
 
 ## Backlog File
 
-The plugin creates `BACKLOG.json` when the first task is added:
+The plugin creates `BACKLOG.json` when the first task or category is added:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
+  "categories": [
+    { "id": "todo", "title": "Todo" },
+    { "id": "doing", "title": "Doing" },
+    { "id": "blocked", "title": "Blocked" },
+    { "id": "done", "title": "Done" }
+  ],
   "items": [
     {
       "id": "c50437e3-2a57-424d-9257-32ec432145a9",
@@ -171,7 +189,11 @@ The plugin creates `BACKLOG.json` when the first task is added:
 }
 ```
 
-Items stay grouped by state. Their array order defines their position inside each state.
+The category array defines category order. The item array defines task order inside each category.
+
+Category IDs stay stable when titles change. The plugin rejects tasks that reference an unknown category ID.
+
+The plugin reads version 1 files with the default categories. The next backlog change writes the file as version 2.
 
 Commit `BACKLOG.json` when the backlog must follow the project. Ignore it when the backlog must remain local.
 

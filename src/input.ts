@@ -1,4 +1,4 @@
-import { isStatus, type Status } from "./backlog.js"
+import { isStatus, type Backlog, type Status } from "./backlog.js"
 
 export function record(input: unknown): Record<string, unknown> {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
@@ -31,10 +31,10 @@ export function optionalNullableString(
   throw new Error(`${key} must be a string or null`)
 }
 
-export function optionalStatus(input: Record<string, unknown>): Status | undefined {
+export function optionalStatus(input: Record<string, unknown>, backlog: Backlog): Status | undefined {
   const value = input.status
   if (value === undefined) return undefined
-  if (!isStatus(value)) throw new Error("status must be todo, doing, or done")
+  if (!isStatus(backlog, value)) throw new Error("status must identify a backlog category")
   return value
 }
 
