@@ -4,6 +4,8 @@ A persistent project backlog for OpenCode V2 agents and the TUI.
 
 `opencode-backlog` gives the agent tools to manage project tasks. It also adds an interactive backlog to the OpenCode sidebar and command palette.
 
+Published package: [opencode-backlog on npm](https://www.npmjs.com/package/opencode-backlog).
+
 ![Backlog sidebar in OpenCode](docs/images/opencode-backlog.jpg)
 
 ## What It Does
