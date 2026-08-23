@@ -1,3 +1,5 @@
+[English](README.md) | [Français](README.fr.md)
+
 # opencode-backlog
 
 A persistent project backlog for OpenCode V2 agents and the TUI.
