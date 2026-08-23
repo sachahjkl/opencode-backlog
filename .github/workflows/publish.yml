@@ -1,0 +1,24 @@
+name: Publish npm package
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+      - name: Check release version
+        run: test "v$(nix develop -c node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
+      - run: nix flake check --print-build-logs
+      - run: nix develop -c npm ci
+      - run: nix develop -c npm publish

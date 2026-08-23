@@ -1,10 +1,16 @@
 {
   description = "OpenCode backlog plugin";
 
+  inputs.git-hooks.url = "github:cachix/git-hooks.nix";
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
   outputs =
-    { self, nixpkgs, ... }:
+    {
+      self,
+      git-hooks,
+      nixpkgs,
+      ...
+    }:
     let
       systems = [
         "aarch64-linux"
@@ -35,7 +41,19 @@
           };
           npmDeps = pkgs.fetchNpmDeps {
             inherit src;
-            hash = "sha256-FNOFJxBpBCrQ1/h488MMBaYuTm9Q7ijV1Mi6r4qfXY4=";
+            hash = "sha256-hT8MjgrgoOZPLda4mmnMVmpUHS+AsOy7rVYa2BvPNlE=";
+          };
+          preCommitCheck = git-hooks.lib.${system}.run {
+            src = ./.;
+            hooks = {
+              actionlint.enable = true;
+              check-added-large-files.enable = true;
+              check-json.enable = true;
+              check-merge-conflicts.enable = true;
+              end-of-file-fixer.enable = true;
+              nixfmt.enable = true;
+              trim-trailing-whitespace.enable = true;
+            };
           };
           mkCheck =
             name: command:
@@ -78,22 +96,10 @@
               runHook postInstall
             '';
           };
-          workflowSource = lib.fileset.toSource {
-            root = ./.;
-            fileset = ./.github;
-          };
         in
         {
-          actionlint =
-            pkgs.runCommand "${packageJson.name}-actionlint"
-              {
-                nativeBuildInputs = [ pkgs.actionlint ];
-              }
-              ''
-                actionlint ${workflowSource}/.github/workflows/*.yml
-                touch $out
-              '';
           build = plugin;
+          pre-commit = preCommitCheck;
           test = mkCheck "test" "npm test";
           typecheck = mkCheck "typecheck" "npm run check";
         }
@@ -107,10 +113,12 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
+          inherit (self.checks.${system}.pre-commit) enabledPackages shellHook;
         in
         {
           default = pkgs.mkShellNoCC {
-            packages = [ pkgs.nodejs_24 ];
+            inherit shellHook;
+            packages = [ pkgs.nodejs_24 ] ++ enabledPackages;
           };
         }
       );

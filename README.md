@@ -180,12 +180,46 @@ Open the command palette in the TUI. The `Browse backlog` command confirms that 
 Run all development commands through Nix:
 
 ```sh
+nix develop
+nix develop -c pre-commit run --all-files
 nix develop -c npm run check
 nix develop -c npm test
 nix flake check --print-build-logs
 ```
 
+Entering `nix develop` installs the repository pre-commit hook. The hook checks Nix formatting, GitHub Actions, JSON, merge conflicts, file sizes, and whitespace.
+
 `BACKLOG.json` is not required by the test suite.
+
+## Release
+
+Bootstrap the new package from an authenticated workstation:
+
+```sh
+npm login
+npm publish
+```
+
+Staged publishing cannot create a new package. After `opencode-backlog` exists on npm, configure trusted publishing with these exact values:
+
+```text
+Organization or user: sachahjkl
+Repository: opencode-backlog
+Workflow filename: publish.yml
+Environment name: <empty>
+Allowed action: npm publish
+```
+
+For later releases, update the package version and push its commit and tag:
+
+```sh
+npm version patch
+git push origin master --follow-tags
+```
+
+Use `minor` or `major` instead of `patch` when the release requires it. The workflow rejects a tag that does not match `package.json`.
+
+The workflow publishes through npm trusted publishing. It uses OIDC and does not store an npm token.
 
 ## Compatibility
 
