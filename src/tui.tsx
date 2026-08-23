@@ -186,13 +186,14 @@ export default Plugin.define({
           }
         })
       }
+      context.renderer.requestRender()
     }
 
     const watchDirectory = (directory: string) => {
       if (watchers.has(directory)) return
       refreshDirectory(directory)
       const watcher = watch(directory, { persistent: false }, (_event, filename) => {
-        if (filename?.toString() === BACKLOG_FILE) refreshDirectory(directory)
+        if (!filename || filename.toString() === BACKLOG_FILE) refreshDirectory(directory)
       })
       watchers.set(directory, watcher)
     }
