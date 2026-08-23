@@ -131,6 +131,16 @@ Open the command palette and select `Browse backlog` to inspect tasks. Select a 
 
 Run `/backlog` or `/tasks` to open the same browser directly.
 
+The backlog browser provides these shortcuts:
+
+- `Enter` opens the selected task details.
+- `n` creates a task.
+- `c` changes the selected task state.
+- `e` edits the selected task.
+- `d` deletes the selected task after confirmation.
+
+Click a sidebar task to open its details. The detail dialog provides `c`, `e`, and `d` for the same actions.
+
 ## Agent Tools
 
 | Tool | Purpose |
