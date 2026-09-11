@@ -1,0 +1,2 @@
+name=opencode-backlog
+description=A persistent project backlog plugin for OpenCode V2 with agent tools, task categories, and an interactive TUI sidebar.
